@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
-  ArrowRight,
   Check,
   CheckCircle2,
   ExternalLink,
@@ -12,13 +11,12 @@ import {
   Package,
   PackagePlus,
   RefreshCw,
-  Send,
   ShoppingCart,
   Sparkles,
   TrendingDown,
   X,
 } from 'lucide-react';
-import { Product, StorageContainer, UNIT_LABELS } from '../types/inventory';
+import { Product, StorageContainer } from '../types/inventory';
 import { GeminiAction, GeminiInterpretation } from '../types/gemini';
 import {
   clearGeminiApiKey,
