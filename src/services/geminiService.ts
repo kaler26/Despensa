@@ -77,12 +77,14 @@ export const findBestModel = async (apiKey: string): Promise<string> => {
         m.supportedGenerationMethods?.includes('generateContent')
       );
 
-      // Prioridad: gemini-2.0-flash > gemini-2.5-flash > otros flash > cualquier modelo que soporte generateContent
+      // Prioridad: gemini-3.5-flash-lite > gemini-3.5-flash > gemini-2.5-flash > gemini-2.0-flash > cualquier flash
       const preferred =
+        contentModels.find((m) => m.name.includes('gemini-3.5-flash-lite')) ||
+        contentModels.find((m) => m.name.includes('gemini-3.5-flash')) ||
+        contentModels.find((m) => m.name.includes('gemini-2.5-flash')) ||
         contentModels.find(
           (m) => m.name.includes('gemini-2.0-flash') && !m.name.includes('lite')
         ) ||
-        contentModels.find((m) => m.name.includes('gemini-2.5-flash')) ||
         contentModels.find((m) => m.name.includes('gemini-2.0-flash-lite')) ||
         contentModels.find((m) => m.name.includes('flash')) ||
         contentModels[0];
@@ -99,7 +101,7 @@ export const findBestModel = async (apiKey: string): Promise<string> => {
     // Si falla la llamada a listar modelos, se usa el orden por defecto
   }
 
-  return 'gemini-2.0-flash';
+  return 'gemini-3.5-flash-lite';
 };
 
 export const interpretVoiceOrTextCommand = async (
@@ -188,7 +190,6 @@ REGLAS DE INTERPRETACIÓN:
     ],
     generationConfig: {
       responseMimeType: 'application/json',
-      temperature: 0.1,
     },
   };
 
@@ -196,9 +197,10 @@ REGLAS DE INTERPRETACIÓN:
   const candidateModels = Array.from(
     new Set([
       discoveredModel,
-      'gemini-2.0-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-3.5-flash',
       'gemini-2.5-flash',
-      'gemini-2.0-flash-lite',
+      'gemini-2.0-flash',
     ])
   );
 
