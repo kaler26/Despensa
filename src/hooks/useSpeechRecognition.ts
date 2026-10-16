@@ -21,7 +21,6 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
   const [transcript, setTranscript] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
-  const finalTranscriptRef = useRef<string>('');
   const recognitionRef = useRef<any>(null);
   const win = typeof window !== 'undefined' ? (window as unknown as IWindow) : null;
   const SpeechRecognitionAPI = win?.SpeechRecognition || win?.webkitSpeechRecognition;
@@ -32,7 +31,8 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
 
     try {
       const recognition = new SpeechRecognitionAPI();
-      recognition.continuous = true;
+      // continuous = false es fundamental para evitar el bug de duplicación/repetición en Chrome Android
+      recognition.continuous = false;
       recognition.interimResults = true;
       recognition.lang = 'es-ES';
 
@@ -42,30 +42,11 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
       };
 
       recognition.onresult = (event: any) => {
-        let interimTranscript = '';
-
-        // Iterar únicamente desde event.resultIndex para evitar procesar fragmentos previos
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const item = event.results[i];
-          const text = item[0]?.transcript || '';
-
-          if (item.isFinal) {
-            const cleanText = text.trim();
-            if (cleanText) {
-              finalTranscriptRef.current += (finalTranscriptRef.current ? ' ' : '') + cleanText;
-            }
-          } else {
-            interimTranscript += text;
-          }
+        let resultText = '';
+        for (let i = 0; i < event.results.length; i++) {
+          resultText += event.results[i][0].transcript;
         }
-
-        const liveText = interimTranscript.trim();
-        const fullText = (
-          finalTranscriptRef.current +
-          (liveText ? (finalTranscriptRef.current ? ' ' : '') + liveText : '')
-        ).trim();
-
-        setTranscript(fullText);
+        setTranscript(resultText.trim());
       };
 
       recognition.onerror = (event: any) => {
@@ -93,7 +74,7 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
     return () => {
       if (recognitionRef.current) {
         try {
-          recognitionRef.current.stop();
+          recognitionRef.current.abort();
         } catch {
           // Ignorar
         }
@@ -103,13 +84,17 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
 
   const startListening = useCallback(() => {
     setError(null);
-    finalTranscriptRef.current = '';
     setTranscript('');
     if (!recognitionRef.current) {
       if (!isSupported) {
         setError('El reconocimiento de voz no está soportado en este navegador.');
       }
       return;
+    }
+    try {
+      recognitionRef.current.abort();
+    } catch {
+      // Ignorar si no estaba activo
     }
     try {
       recognitionRef.current.start();
@@ -130,7 +115,6 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
   }, []);
 
   const resetTranscript = useCallback(() => {
-    finalTranscriptRef.current = '';
     setTranscript('');
     setError(null);
   }, []);
