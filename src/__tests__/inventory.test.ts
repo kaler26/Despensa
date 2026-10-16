@@ -379,6 +379,7 @@ describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi De
       expect(() =>
         validateBasicItemInput({
           name: '',
+          category: 'Lácteos y huevos',
           minQuantity: 1,
           unit: 'l',
         })
@@ -388,6 +389,7 @@ describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi De
       expect(() =>
         validateBasicItemInput({
           name: 'Huevos',
+          category: 'Lácteos y huevos',
           minQuantity: 0,
           unit: 'ud',
         })
@@ -454,6 +456,7 @@ describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi De
         name: 'Café',
         minQuantity: 2,
         unit: 'paquete',
+        category: 'Despensa',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -489,6 +492,7 @@ describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi De
         name: 'Huevos',
         minQuantity: 6,
         unit: 'ud',
+        category: 'Lácteos y huevos',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };

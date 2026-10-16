@@ -29,7 +29,6 @@ import {
   ShoppingListItem,
   ShoppingListItemInput,
   StorageContainer,
-  Unit,
   UNIT_STEP,
 } from './types/inventory';
 import {
