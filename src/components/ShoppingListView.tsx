@@ -23,7 +23,7 @@ interface ShoppingListViewProps {
   onUpdateQuantity: (
     itemId: string,
     newQuantity: number,
-    unit: Unit
+    unit?: Unit
   ) => Promise<void>;
   onRemoveItem: (itemId: string) => Promise<void>;
   onClearChecked: () => Promise<void>;

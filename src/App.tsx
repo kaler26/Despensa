@@ -382,8 +382,7 @@ export const App: React.FC = () => {
 
   const handleUpdateShoppingQuantity = async (
     itemId: string,
-    newQuantity: number,
-    _unit: Unit
+    newQuantity: number
   ) => {
     if (!user) return;
     try {
