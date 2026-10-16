@@ -5,7 +5,47 @@ rules_version = '2';
 // ===============================================================
 //
 // Shared household pantry for dumber.wow@gmail.com & laura.lmp94@gmail.com
-// Path: users/{householdId}/{containers|products|movements}/{docId}
+// Root path: users/{householdId} (where householdId == 'hogar-principal')
+//
+// Collection: users/{householdId}/containers/{containerId}
+//   - uid: string (required, immutable, == householdId)
+//   - name: string (required, 1..50 chars)
+//   - type: string (required, in ['nevera', 'congelador', 'despensa', 'armario', 'otro'])
+//   - createdAt: timestamp (required, immutable)
+//
+// Collection: users/{householdId}/products/{productId}
+//   - uid: string (required, immutable, == householdId)
+//   - name: string (required, 1..100 chars)
+//   - category: string (required, 1..50 chars)
+//   - location: string (required, 1..50 chars)
+//   - quantity: number (required, 0..1000000)
+//   - unit: string (required, in ['ud', 'kg', 'g', 'l', 'ml', 'paquete', 'lata'])
+//   - notes: string (required, 0..500 chars)
+//   - minQuantity: number (optional legacy field, 0..1000000)
+//   - createdAt: timestamp (required, immutable)
+//   - updatedAt: timestamp (required)
+//
+// Collection: users/{householdId}/shoppingList/{itemId}
+//   - uid: string (required, immutable, == householdId)
+//   - name: string (required, 1..100 chars)
+//   - quantity: number (required, > 0 and <= 1000000)
+//   - unit: string (required, in ['ud', 'kg', 'g', 'l', 'ml', 'paquete', 'lata'])
+//   - checked: bool (required)
+//   - notes: string (required, 0..300 chars)
+//   - productId: string or null (optional, 1..100 chars when string)
+//   - createdAt: timestamp (required, immutable)
+//
+// Collection: users/{householdId}/movements/{movementId}
+//   - uid: string (required, immutable, == householdId)
+//   - productId: string (required, 1..100 chars)
+//   - productName: string (required, 1..100 chars)
+//   - type: string (required, in ['compra', 'consumo', 'ajuste'])
+//   - delta: number (required, != 0, -1000000..1000000)
+//   - previousQuantity: number (required, 0..1000000)
+//   - newQuantity: number (required, 0..1000000)
+//   - unit: string (required, in ['ud', 'kg', 'g', 'l', 'ml', 'paquete', 'lata'])
+//   - note: string (required, 0..300 chars)
+//   - createdAt: timestamp (required, immutable)
 //
 // ===============================================================
 
@@ -78,13 +118,24 @@ service cloud.firestore {
         'location',
         'quantity',
         'unit',
+        'notes',
+        'createdAt',
+        'updatedAt'
+      ];
+      let allowedFields = [
+        'uid',
+        'name',
+        'category',
+        'location',
+        'quantity',
+        'unit',
         'minQuantity',
         'notes',
         'createdAt',
         'updatedAt'
       ];
       return hasRequiredFields(requiredFields) &&
-        hasOnlyAllowedFields(requiredFields) &&
+        hasOnlyAllowedFields(allowedFields) &&
         data.uid is string &&
         data.uid == householdId &&
         validStringLength('name', 1, 100) &&
@@ -94,12 +145,45 @@ service cloud.firestore {
         data.quantity >= 0 &&
         data.quantity <= 1000000 &&
         isValidUnit(data.unit) &&
-        data.minQuantity is number &&
-        data.minQuantity >= 0 &&
-        data.minQuantity <= 1000000 &&
+        (!('minQuantity' in data) || (data.minQuantity is number && data.minQuantity >= 0 && data.minQuantity <= 1000000)) &&
         validStringLength('notes', 0, 500) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
+    }
+
+    function isValidShoppingListItem(data, householdId) {
+      let requiredFields = [
+        'uid',
+        'name',
+        'quantity',
+        'unit',
+        'checked',
+        'notes',
+        'createdAt'
+      ];
+      let allowedFields = [
+        'uid',
+        'name',
+        'quantity',
+        'unit',
+        'checked',
+        'notes',
+        'productId',
+        'createdAt'
+      ];
+      return hasRequiredFields(requiredFields) &&
+        hasOnlyAllowedFields(allowedFields) &&
+        data.uid is string &&
+        data.uid == householdId &&
+        validStringLength('name', 1, 100) &&
+        data.quantity is number &&
+        data.quantity > 0 &&
+        data.quantity <= 1000000 &&
+        isValidUnit(data.unit) &&
+        data.checked is bool &&
+        validStringLength('notes', 0, 300) &&
+        (!('productId' in data) || data.productId == null || (data.productId is string && data.productId.size() >= 1 && data.productId.size() <= 100)) &&
+        data.createdAt is timestamp;
     }
 
     function isValidMovement(data, householdId) {
@@ -155,8 +239,18 @@ service cloud.firestore {
         allow create: if isAuthorizedHouseholdMember(householdId) &&
           isValidProduct(request.resource.data, householdId);
         allow update: if isAuthorizedHouseholdMember(householdId) &&
-          areImmutableFieldsUnchanged(['uid', 'createdAt']) &&
+          areImmutableFieldsUnchanged(['uid']) &&
           isValidProduct(request.resource.data, householdId);
+        allow delete: if isAuthorizedHouseholdMember(householdId);
+      }
+
+      match /shoppingList/{itemId} {
+        allow read: if isAuthorizedHouseholdMember(householdId);
+        allow create: if isAuthorizedHouseholdMember(householdId) &&
+          isValidShoppingListItem(request.resource.data, householdId);
+        allow update: if isAuthorizedHouseholdMember(householdId) &&
+          areImmutableFieldsUnchanged(['uid', 'createdAt']) &&
+          isValidShoppingListItem(request.resource.data, householdId);
         allow delete: if isAuthorizedHouseholdMember(householdId);
       }
 

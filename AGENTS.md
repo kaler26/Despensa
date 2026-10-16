@@ -29,9 +29,12 @@ Este archivo proporciona todo el contexto técnico y funcional para que **Antigr
    - Por petición expresa del usuario, **no se usan fechas de caducidad**.
    - Los alimentos se organizan por **contenedores** (ej. `Nevera`, `Congelador`, `Despensa 1`, `Despensa 2`, etc.).
    - El usuario puede filtrar por contenedor desde la barra principal y crear, renombrar o eliminar contenedores desde [`src/components/ContainerManagerModal.tsx`](./src/components/ContainerManagerModal.tsx) o directamente al crear un producto en [`src/components/ProductFormModal.tsx`](./src/components/ProductFormModal.tsx).
-3. **Unidades Permitidas**:
+3. **Lista de la Compra Manual (sin reposición automática ni stock mínimo)**:
+   - Por petición expresa del usuario, **no hay lista automática de reposición ni cantidad mínima (`minQuantity`)**.
+   - Existe una pestaña dedicada **"Lista de la compra"** ([`src/components/ShoppingListView.tsx`](./src/components/ShoppingListView.tsx)) donde se apuntan manualmente los artículos a comprar (o con un toque desde cualquier tarjeta del inventario mediante el botón «Añadir a la compra»).
+4. **Unidades Permitidas**:
    - `ud`, `kg`, `g`, `l`, `ml`, `paquete`, `lata`.
-4. **Transacciones Atómicas y Stock No Negativo**:
+5. **Transacciones Atómicas y Stock No Negativo**:
    - Todo cambio de existencias (`+`, `-`, compra, consumo o ajuste) se ejecuta mediante `runTransaction` de Firestore en [`src/services/inventoryService.ts`](./src/services/inventoryService.ts) y [`src/domain/inventoryLogic.ts`](./src/domain/inventoryLogic.ts).
    - Nunca se permiten existencias negativas (`NegativeStockError` si `newQuantity < 0`).
    - Cada cambio de stock genera atómicamente un registro en el historial (`compra`, `consumo`, `ajuste`).
@@ -54,9 +57,17 @@ Ruta raíz compartida: `users/hogar-principal`
   - `location`: `string` (nombre del contenedor)
   - `quantity`: `number` (`>= 0`)
   - `unit`: `'ud' | 'kg' | 'g' | 'l' | 'ml' | 'paquete' | 'lata'`
-  - `minQuantity`: `number` (`>= 0`)
   - `notes`: `string`
   - `createdAt`, `updatedAt`: `timestamp`
+- `users/hogar-principal/shoppingList/{itemId}`:
+  - `uid`: `'hogar-principal'`
+  - `name`: `string`
+  - `quantity`: `number` (`> 0`)
+  - `unit`: `Unit`
+  - `checked`: `boolean`
+  - `notes`: `string`
+  - `productId`: `string | null`
+  - `createdAt`: `timestamp`
 - `users/hogar-principal/movements/{movementId}`:
   - `uid`: `'hogar-principal'`
   - `productId`: `string`

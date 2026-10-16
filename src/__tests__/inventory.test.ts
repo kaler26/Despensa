@@ -14,14 +14,14 @@ import {
   executeStockChangeTransaction,
   executeUpdateProductTransaction,
   filterProducts,
-  getLowStockProducts,
   getStockStatus,
   inferContainerType,
   validateContainerName,
   validateProductInput,
+  validateShoppingItemInput,
 } from '../domain/inventoryLogic';
 
-describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
+describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi Despensa', () => {
   const testUid = 'user-test-123';
 
   it('valida todas las unidades permitidas: ud, kg, g, l, ml, paquete y lata', () => {
@@ -34,7 +34,6 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
         location: 'Despensa 1',
         quantity: 2,
         unit,
-        minQuantity: 1,
         notes: 'Nota de prueba',
       });
       expect(valid.unit).toBe(unit);
@@ -63,7 +62,7 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
     );
   });
 
-  it('impide crear productos con existencias negativas o cantidad mínima negativa', () => {
+  it('impide crear productos con existencias negativas', () => {
     expect(() =>
       validateProductInput({
         name: 'Leche',
@@ -71,18 +70,35 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
         location: 'Nevera',
         quantity: -1,
         unit: 'l',
-        minQuantity: 2,
       })
     ).toThrow(NegativeStockError);
+  });
+
+  it('valida artículos manuales para la lista de la compra', () => {
+    const valid = validateShoppingItemInput({
+      name: '  Huevos camperos  ',
+      quantity: 2,
+      unit: 'paquete',
+      notes: '  Tamaño L  ',
+    });
+    expect(valid.name).toBe('Huevos camperos');
+    expect(valid.quantity).toBe(2);
+    expect(valid.unit).toBe('paquete');
+    expect(valid.notes).toBe('Tamaño L');
 
     expect(() =>
-      validateProductInput({
-        name: 'Leche',
-        category: 'Lácteos y huevos',
-        location: 'Nevera',
-        quantity: 2,
-        unit: 'l',
-        minQuantity: -1,
+      validateShoppingItemInput({
+        name: '',
+        quantity: 1,
+        unit: 'ud',
+      })
+    ).toThrow(ValidationError);
+
+    expect(() =>
+      validateShoppingItemInput({
+        name: 'Pan',
+        quantity: 0,
+        unit: 'ud',
       })
     ).toThrow(ValidationError);
   });
@@ -95,7 +111,6 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
       location: 'Despensa 1',
       quantity: 3,
       unit: 'l',
-      minQuantity: 1,
       notes: 'Garrafa de 1L',
     });
 
@@ -120,7 +135,6 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
       location: 'Despensa 2',
       quantity: 2,
       unit: 'lata',
-      minQuantity: 2,
     });
 
     const afterAdd = await executeStockChangeTransaction(store.engine, {
@@ -154,7 +168,6 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
       location: 'Despensa 1',
       quantity: 1,
       unit: 'paquete',
-      minQuantity: 1,
     });
 
     await expect(
@@ -178,7 +191,6 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
       location: 'Nevera',
       quantity: 5,
       unit: 'l',
-      minQuantity: 2,
     });
 
     await Promise.all([
@@ -226,7 +238,6 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
       location: 'Nevera',
       quantity: 6,
       unit: 'ud',
-      minQuantity: 4,
     });
 
     const updatedInput: ProductInput = {
@@ -235,7 +246,6 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
       location: 'Nevera',
       quantity: 3,
       unit: 'ud',
-      minQuantity: 4,
       notes: 'Ajuste tras recuento',
     };
 
@@ -254,42 +264,26 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
     expect(store.getProducts()[0].location).toBe('Nevera Cocina');
   });
 
-  it('detecta automáticamente productos agotados y por debajo del mínimo', async () => {
+  it('identifica si un producto está agotado (0) o con existencias disponibles', async () => {
     const store = createInMemoryTransactionalEngine();
 
-    await executeCreateProductTransaction(store.engine, testUid, {
+    const agotado = await executeCreateProductTransaction(store.engine, testUid, {
       name: 'Harina de trigo',
       category: 'Panadería y desayuno',
       location: 'Despensa 1',
       quantity: 0,
       unit: 'kg',
-      minQuantity: 1,
     });
-    await executeCreateProductTransaction(store.engine, testUid, {
-      name: 'Café molido',
-      category: 'Panadería y desayuno',
-      location: 'Despensa 2',
-      quantity: 200,
-      unit: 'g',
-      minQuantity: 250,
-    });
-    await executeCreateProductTransaction(store.engine, testUid, {
+    const disponible = await executeCreateProductTransaction(store.engine, testUid, {
       name: 'Agua mineral',
       category: 'Bebidas',
       location: 'Despensa 2',
       quantity: 12,
       unit: 'l',
-      minQuantity: 4,
     });
 
-    const all = store.getProducts();
-    const lowStock = getLowStockProducts(all);
-
-    expect(lowStock).toHaveLength(2);
-    expect(lowStock[0].name).toBe('Harina de trigo');
-    expect(getStockStatus(lowStock[0])).toBe('agotado');
-    expect(lowStock[1].name).toBe('Café molido');
-    expect(getStockStatus(lowStock[1])).toBe('bajo');
+    expect(getStockStatus(agotado)).toBe('agotado');
+    expect(getStockStatus(disponible)).toBe('ok');
   });
 
   it('filtra productos por contenedor (Nevera, Despensa 1, Despensa 2), categoría y búsqueda', async () => {
@@ -300,7 +294,6 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
       location: 'Congelador',
       quantity: 500,
       unit: 'g',
-      minQuantity: 200,
     });
     await executeCreateProductTransaction(store.engine, testUid, {
       name: 'Lentejas pardinas',
@@ -308,7 +301,6 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
       location: 'Despensa 1',
       quantity: 1,
       unit: 'kg',
-      minQuantity: 0.5,
     });
     await executeCreateProductTransaction(store.engine, testUid, {
       name: 'Conserva de mejillones',
@@ -316,7 +308,6 @@ describe('Operaciones de Inventario y Contenedores — Mi Despensa', () => {
       location: 'Despensa 2',
       quantity: 3,
       unit: 'lata',
-      minQuantity: 2,
     });
 
     const products = store.getProducts();

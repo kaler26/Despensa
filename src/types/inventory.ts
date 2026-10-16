@@ -85,7 +85,6 @@ export interface Product {
   location: string; // Nombre del contenedor (ej. "Nevera", "Despensa 1", "Despensa 2")
   quantity: number;
   unit: Unit;
-  minQuantity: number;
   notes: string;
   createdAt: string; // ISO string en cliente
   updatedAt: string; // ISO string en cliente
@@ -97,8 +96,27 @@ export interface ProductInput {
   location: string;
   quantity: number;
   unit: Unit;
-  minQuantity: number;
   notes?: string;
+}
+
+export interface ShoppingListItem {
+  id: string;
+  uid: string;
+  name: string;
+  quantity: number;
+  unit: Unit;
+  checked: boolean;
+  notes: string;
+  productId?: string | null;
+  createdAt: string;
+}
+
+export interface ShoppingListItemInput {
+  name: string;
+  quantity: number;
+  unit: Unit;
+  notes?: string;
+  productId?: string | null;
 }
 
 export interface Movement {
@@ -115,7 +133,7 @@ export interface Movement {
   createdAt: string; // ISO string en cliente
 }
 
-export type StockStatus = 'agotado' | 'bajo' | 'ok';
+export type StockStatus = 'agotado' | 'ok';
 
 export interface InventoryFilter {
   search: string;
