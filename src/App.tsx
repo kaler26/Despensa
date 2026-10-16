@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
-  AlertTriangle,
   Archive,
   CheckCircle2,
   ClipboardList,
@@ -23,36 +22,44 @@ import {
   MovementType,
   Product,
   ProductInput,
+  ShoppingListItem,
+  ShoppingListItemInput,
   StorageContainer,
+  Unit,
+  UNIT_STEP,
 } from './types/inventory';
+import { filterProducts } from './domain/inventoryLogic';
 import {
-  filterProducts,
-  getLowStockProducts,
-} from './domain/inventoryLogic';
-import {
+  addShoppingListItem,
   changeProductStock,
+  clearCheckedShoppingListItems,
   createContainer,
   createProduct,
   removeContainer,
   removeProduct,
+  removeShoppingListItem,
   renameContainer,
   subscribeToContainers,
   subscribeToMovements,
   subscribeToProducts,
+  subscribeToShoppingList,
+  toggleShoppingListItem,
   updateProduct,
+  updateShoppingListItemQuantity,
 } from './services/inventoryService';
 import { ProductCard } from './components/ProductCard';
 import { ProductFormModal } from './components/ProductFormModal';
 import { StockMovementModal } from './components/StockMovementModal';
 import { ConfirmDeleteModal } from './components/ConfirmDeleteModal';
 import { MovementsHistoryView } from './components/MovementsHistoryView';
+import { ShoppingListView } from './components/ShoppingListView';
 import { LoginView } from './components/LoginView';
 import {
   ContainerManagerModal,
   renderContainerIcon,
 } from './components/ContainerManagerModal';
 
-type ActiveTab = 'inventario' | 'faltantes' | 'historial';
+type ActiveTab = 'inventario' | 'compra' | 'historial';
 
 export const App: React.FC = () => {
   const { user, loading: authLoading, signOut, isFirebaseReady } = useAuth();
@@ -60,6 +67,7 @@ export const App: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [containers, setContainers] = useState<StorageContainer[]>([]);
+  const [shoppingList, setShoppingList] = useState<ShoppingListItem[]>([]);
   const [dataLoading, setDataLoading] = useState<boolean>(true);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
@@ -91,12 +99,13 @@ export const App: React.FC = () => {
     useState<Product | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
-  // Suscripción en tiempo real a productos, contenedores e historial
+  // Suscripción en tiempo real a productos, contenedores, lista de la compra e historial
   useEffect(() => {
     if (!user) {
       setProducts([]);
       setMovements([]);
       setContainers([]);
+      setShoppingList([]);
       setDataLoading(false);
       return;
     }
@@ -132,6 +141,21 @@ export const App: React.FC = () => {
       }
     );
 
+    const unsubShopping = subscribeToShoppingList(
+      user.uid,
+      user.isDemo,
+      (items) => {
+        setShoppingList(items);
+      },
+      (err) => {
+        setErrorBanner(
+          `Error al cargar la lista de la compra: ${
+            err.message || 'Error desconocido'
+          }`
+        );
+      }
+    );
+
     const unsubMovements = subscribeToMovements(
       user.uid,
       user.isDemo,
@@ -148,6 +172,7 @@ export const App: React.FC = () => {
     return () => {
       unsubContainers();
       unsubProducts();
+      unsubShopping();
       unsubMovements();
     };
   }, [user]);
@@ -169,9 +194,9 @@ export const App: React.FC = () => {
     [products, search, categoryFilter, locationFilter]
   );
 
-  const lowStockProducts = useMemo(
-    () => getLowStockProducts(products),
-    [products]
+  const pendingShoppingCount = useMemo(
+    () => shoppingList.filter((item) => !item.checked).length,
+    [shoppingList]
   );
 
   const availableCategories = useMemo(() => {
@@ -225,6 +250,114 @@ export const App: React.FC = () => {
       );
     } finally {
       setProductBusy(product.id, false);
+    }
+  };
+
+  const handleAddShoppingItem = async (input: ShoppingListItemInput) => {
+    if (!user) return;
+    setErrorBanner(null);
+    const item = await addShoppingListItem(
+      user.uid,
+      input,
+      shoppingList,
+      user.isDemo
+    );
+    setFeedbackToast(
+      `"${item.name}" (${item.quantity} ${item.unit}) en la lista de la compra.`
+    );
+  };
+
+  const handleQuickAddProductToShoppingList = async (product: Product) => {
+    if (!user) return;
+    setErrorBanner(null);
+    try {
+      const step = UNIT_STEP[product.unit] ?? 1;
+      const item = await addShoppingListItem(
+        user.uid,
+        {
+          name: product.name,
+          quantity: step,
+          unit: product.unit,
+          notes: product.location,
+        },
+        shoppingList,
+        user.isDemo
+      );
+      setFeedbackToast(
+        `"${item.name}" añadido a la lista de la compra (${item.quantity} ${item.unit}).`
+      );
+    } catch (err: unknown) {
+      setErrorBanner(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo añadir a la lista de la compra.'
+      );
+    }
+  };
+
+  const handleToggleShoppingItem = async (itemId: string, checked: boolean) => {
+    if (!user) return;
+    try {
+      await toggleShoppingListItem(user.uid, itemId, checked, user.isDemo);
+    } catch (err: unknown) {
+      setErrorBanner(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo actualizar el artículo.'
+      );
+    }
+  };
+
+  const handleUpdateShoppingQuantity = async (
+    itemId: string,
+    newQuantity: number,
+    _unit: Unit
+  ) => {
+    if (!user) return;
+    try {
+      await updateShoppingListItemQuantity(
+        user.uid,
+        itemId,
+        newQuantity,
+        user.isDemo
+      );
+    } catch (err: unknown) {
+      setErrorBanner(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo cambiar la cantidad en la lista.'
+      );
+    }
+  };
+
+  const handleRemoveShoppingItem = async (itemId: string) => {
+    if (!user) return;
+    try {
+      await removeShoppingListItem(user.uid, itemId, user.isDemo);
+    } catch (err: unknown) {
+      setErrorBanner(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo quitar de la lista de la compra.'
+      );
+    }
+  };
+
+  const handleClearCheckedShoppingItems = async () => {
+    if (!user) return;
+    try {
+      await clearCheckedShoppingListItems(
+        user.uid,
+        shoppingList,
+        user.isDemo
+      );
+      setFeedbackToast('Artículos comprados eliminados de la lista.');
+    } catch (err: unknown) {
+      setErrorBanner(
+        err instanceof Error
+          ? err.message
+          : 'No se pudieron borrar los artículos comprados.'
+      );
     }
   };
 
@@ -448,18 +581,18 @@ export const App: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setActiveTab('faltantes')}
+            onClick={() => setActiveTab('compra')}
             className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-              activeTab === 'faltantes'
+              activeTab === 'compra'
                 ? 'bg-slate-900 text-white'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
             <ShoppingCart className="h-4 w-4" aria-hidden="true" />
-            Agotados y bajo mínimo
-            {lowStockProducts.length > 0 && (
-              <span className="rounded-full bg-rose-600 px-2 py-0.5 text-xs font-bold text-white">
-                {lowStockProducts.length}
+            Lista de la compra
+            {pendingShoppingCount > 0 && (
+              <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-bold text-white">
+                {pendingShoppingCount}
               </span>
             )}
           </button>
@@ -541,18 +674,18 @@ export const App: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setActiveTab('faltantes')}
-            className="flex min-w-0 flex-col items-start rounded-2xl border border-amber-200 bg-amber-50/60 p-2.5 text-left shadow-2xs transition hover:border-amber-400 sm:p-3.5"
+            onClick={() => setActiveTab('compra')}
+            className="flex min-w-0 flex-col items-start rounded-2xl border border-emerald-200 bg-emerald-50/60 p-2.5 text-left shadow-2xs transition hover:border-emerald-400 sm:p-3.5"
           >
-            <div className="flex items-center gap-1 text-[11px] font-semibold text-amber-900 sm:gap-1.5 sm:text-xs">
-              <AlertTriangle
-                className="h-3.5 w-3.5 shrink-0 text-amber-600 sm:h-4 sm:w-4"
+            <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-900 sm:gap-1.5 sm:text-xs">
+              <ShoppingCart
+                className="h-3.5 w-3.5 shrink-0 text-emerald-700 sm:h-4 sm:w-4"
                 aria-hidden="true"
               />
-              <span className="truncate">Por reponer</span>
+              <span className="truncate">Lista compra</span>
             </div>
-            <span className="mt-1 text-xl font-extrabold text-amber-950 sm:text-2xl">
-              {lowStockProducts.length}
+            <span className="mt-1 text-xl font-extrabold text-emerald-950 sm:text-2xl">
+              {pendingShoppingCount}
             </span>
           </button>
 
@@ -775,6 +908,7 @@ export const App: React.FC = () => {
                           handleQuickStockChange(p, -step, 'consumo')
                         }
                         onOpenMovementModal={(p) => setMovementModalProduct(p)}
+                        onAddToShoppingList={handleQuickAddProductToShoppingList}
                         onEdit={(p) => {
                           setEditingProduct(p);
                           setIsFormOpen(true);
@@ -787,58 +921,16 @@ export const App: React.FC = () => {
               </section>
             )}
 
-            {/* VISTA 2: LISTA AUTOMÁTICA DE PRODUCTOS AGOTADOS O POR DEBAJO DEL MÍNIMO */}
-            {activeTab === 'faltantes' && (
-              <section
-                aria-label="Lista automática de productos agotados o bajo mínimo"
-                className="space-y-4"
-              >
-                <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4">
-                  <h2 className="text-base font-bold text-amber-950">
-                    Lista automática de reposición
-                  </h2>
-                  <p className="mt-1 text-xs text-amber-900">
-                    Aquí se muestran automáticamente todos los alimentos agotados (0 existencias) o cuya cantidad actual es igual o inferior a la cantidad mínima configurada.
-                  </p>
-                </div>
-
-                {lowStockProducts.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-emerald-300 bg-white p-10 text-center">
-                    <CheckCircle2
-                      className="h-10 w-10 text-emerald-600"
-                      aria-hidden="true"
-                    />
-                    <h3 className="mt-3 text-base font-bold text-slate-900">
-                      ¡Todo el inventario está por encima del mínimo!
-                    </h3>
-                    <p className="mt-1 text-sm text-slate-600">
-                      No tienes ningún producto agotado ni por debajo de su stock mínimo.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
-                    {lowStockProducts.map((product) => (
-                      <ProductCard
-                        key={product.id}
-                        product={product}
-                        isUpdating={updatingProductIds.has(product.id)}
-                        onQuickIncrement={(p, step) =>
-                          handleQuickStockChange(p, step, 'compra')
-                        }
-                        onQuickDecrement={(p, step) =>
-                          handleQuickStockChange(p, -step, 'consumo')
-                        }
-                        onOpenMovementModal={(p) => setMovementModalProduct(p)}
-                        onEdit={(p) => {
-                          setEditingProduct(p);
-                          setIsFormOpen(true);
-                        }}
-                        onDeleteRequest={(p) => setDeleteTargetProduct(p)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </section>
+            {/* VISTA 2: LISTA DE LA COMPRA MANUAL */}
+            {activeTab === 'compra' && (
+              <ShoppingListView
+                items={shoppingList}
+                onAddItem={handleAddShoppingItem}
+                onToggleItem={handleToggleShoppingItem}
+                onUpdateQuantity={handleUpdateShoppingQuantity}
+                onRemoveItem={handleRemoveShoppingItem}
+                onClearChecked={handleClearCheckedShoppingItems}
+              />
             )}
 
             {/* VISTA 3: HISTORIAL DE COMPRAS, CONSUMOS Y AJUSTES */}
@@ -869,18 +961,18 @@ export const App: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => setActiveTab('faltantes')}
+          onClick={() => setActiveTab('compra')}
           className={`relative flex flex-1 flex-col items-center justify-center rounded-xl py-1.5 text-xs font-semibold ${
-            activeTab === 'faltantes'
+            activeTab === 'compra'
               ? 'text-emerald-700'
               : 'text-slate-500 hover:text-slate-900'
           }`}
         >
           <ShoppingCart className="h-5 w-5" aria-hidden="true" />
-          <span className="mt-0.5">Faltantes</span>
-          {lowStockProducts.length > 0 && (
-            <span className="absolute right-6 top-1 rounded-full bg-rose-600 px-1.5 py-0.2 text-[10px] font-bold text-white">
-              {lowStockProducts.length}
+          <span className="mt-0.5">Lista compra</span>
+          {pendingShoppingCount > 0 && (
+            <span className="absolute right-6 top-1 rounded-full bg-emerald-600 px-1.5 py-0.2 text-[10px] font-bold text-white">
+              {pendingShoppingCount}
             </span>
           )}
         </button>

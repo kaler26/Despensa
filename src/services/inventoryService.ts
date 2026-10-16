@@ -10,6 +10,7 @@ import {
   serverTimestamp,
   setDoc,
   Timestamp,
+  updateDoc,
   where,
   writeBatch,
 } from 'firebase/firestore';
@@ -21,6 +22,8 @@ import {
   Product,
   ProductInput,
   ProductNotFoundError,
+  ShoppingListItem,
+  ShoppingListItemInput,
   StorageContainer,
   ValidationError,
 } from '../types/inventory';
@@ -30,14 +33,17 @@ import {
   executeStockChangeTransaction,
   executeUpdateProductTransaction,
   inferContainerType,
+  roundQuantity,
   TransactionalEngine,
   TransactionStoreAdapter,
   validateContainerName,
+  validateShoppingItemInput,
 } from '../domain/inventoryLogic';
 
-const LOCAL_PRODUCTS_KEY = 'mi_despensa_products_v2';
-const LOCAL_MOVEMENTS_KEY = 'mi_despensa_movements_v2';
-const LOCAL_CONTAINERS_KEY = 'mi_despensa_containers_v2';
+const LOCAL_PRODUCTS_KEY = 'mi_despensa_products_v3';
+const LOCAL_MOVEMENTS_KEY = 'mi_despensa_movements_v3';
+const LOCAL_CONTAINERS_KEY = 'mi_despensa_containers_v3';
+const LOCAL_SHOPPING_KEY = 'mi_despensa_shopping_v3';
 
 export function getSeedContainers(uid: string): StorageContainer[] {
   const isoNow = new Date().toISOString();
@@ -48,6 +54,34 @@ export function getSeedContainers(uid: string): StorageContainer[] {
     type: inferContainerType(name),
     createdAt: isoNow,
   }));
+}
+
+export function getSeedShoppingList(uid: string): ShoppingListItem[] {
+  const isoNow = new Date().toISOString();
+  return [
+    {
+      id: 'shop-1',
+      uid,
+      name: 'Huevos camperos M/L',
+      quantity: 1,
+      unit: 'paquete',
+      checked: false,
+      notes: 'Docena en el mercado',
+      productId: 'prod-huevos-camperos',
+      createdAt: isoNow,
+    },
+    {
+      id: 'shop-2',
+      uid,
+      name: 'Leche entera',
+      quantity: 6,
+      unit: 'l',
+      checked: false,
+      notes: 'Pack de 6 bricks',
+      productId: 'prod-leche-entera',
+      createdAt: isoNow,
+    },
+  ];
 }
 
 /**
@@ -65,7 +99,6 @@ export function getSeedProducts(uid: string): Product[] {
       location: 'Nevera',
       quantity: 2,
       unit: 'l',
-      minQuantity: 3,
       notes: 'Brick de 1 litro semidesnatada o entera',
       createdAt: isoNow,
       updatedAt: isoNow,
@@ -78,7 +111,6 @@ export function getSeedProducts(uid: string): Product[] {
       location: 'Nevera',
       quantity: 0,
       unit: 'ud',
-      minQuantity: 6,
       notes: 'Comprar docena en el mercado',
       createdAt: isoNow,
       updatedAt: isoNow,
@@ -89,9 +121,8 @@ export function getSeedProducts(uid: string): Product[] {
       name: 'Yogur natural sin azúcar',
       category: 'Lácteos y huevos',
       location: 'Nevera',
-      quantity: 2,
+      quantity: 4,
       unit: 'ud',
-      minQuantity: 4,
       notes: 'Pack de yogures naturales',
       createdAt: isoNow,
       updatedAt: isoNow,
@@ -104,7 +135,6 @@ export function getSeedProducts(uid: string): Product[] {
       location: 'Despensa 1',
       quantity: 1.5,
       unit: 'kg',
-      minQuantity: 1,
       notes: 'Ideal para paella y guarnición',
       createdAt: isoNow,
       updatedAt: isoNow,
@@ -115,9 +145,8 @@ export function getSeedProducts(uid: string): Product[] {
       name: 'Garbanzos cocidos',
       category: 'Legumbres y cereales',
       location: 'Despensa 1',
-      quantity: 1,
+      quantity: 2,
       unit: 'paquete',
-      minQuantity: 2,
       notes: 'Tarro de cristal de 400g',
       createdAt: isoNow,
       updatedAt: isoNow,
@@ -130,7 +159,6 @@ export function getSeedProducts(uid: string): Product[] {
       location: 'Despensa 2',
       quantity: 5,
       unit: 'lata',
-      minQuantity: 3,
       notes: 'Pack ahorro de latas pequeñas',
       createdAt: isoNow,
       updatedAt: isoNow,
@@ -143,7 +171,6 @@ export function getSeedProducts(uid: string): Product[] {
       location: 'Congelador',
       quantity: 600,
       unit: 'g',
-      minQuantity: 500,
       notes: 'Bolsas individuales congeladas',
       createdAt: isoNow,
       updatedAt: isoNow,
@@ -242,12 +269,29 @@ function loadLocalContainers(uid: string): StorageContainer[] {
   }
 }
 
+function loadLocalShoppingList(uid: string): ShoppingListItem[] {
+  try {
+    const raw = localStorage.getItem(`${LOCAL_SHOPPING_KEY}_${uid}`);
+    if (!raw) {
+      const seeded = getSeedShoppingList(uid);
+      localStorage.setItem(`${LOCAL_SHOPPING_KEY}_${uid}`, JSON.stringify(seeded));
+      return seeded;
+    }
+    return JSON.parse(raw) as ShoppingListItem[];
+  } catch {
+    return getSeedShoppingList(uid);
+  }
+}
+
 type LocalSubscriber = {
   onProducts: Set<(products: Product[]) => void>;
   onMovements: Set<(movements: Movement[]) => void>;
   onContainers: Set<(containers: StorageContainer[]) => void>;
+  onShopping: Set<(items: ShoppingListItem[]) => void>;
   containers: StorageContainer[];
+  shoppingList: ShoppingListItem[];
   saveContainers: (next: StorageContainer[]) => void;
+  saveShoppingList: (next: ShoppingListItem[]) => void;
   instance: ReturnType<typeof createInMemoryTransactionalEngine>;
 };
 
@@ -259,8 +303,10 @@ function getLocalStore(uid: string): LocalSubscriber {
     const productsSubs = new Set<(products: Product[]) => void>();
     const movementsSubs = new Set<(movements: Movement[]) => void>();
     const containersSubs = new Set<(containers: StorageContainer[]) => void>();
+    const shoppingSubs = new Set<(items: ShoppingListItem[]) => void>();
 
     const initialContainers = loadLocalContainers(uid);
+    const initialShopping = loadLocalShoppingList(uid);
 
     const instance = createInMemoryTransactionalEngine(
       loadLocalProducts(uid),
@@ -281,7 +327,9 @@ function getLocalStore(uid: string): LocalSubscriber {
       onProducts: productsSubs,
       onMovements: movementsSubs,
       onContainers: containersSubs,
+      onShopping: shoppingSubs,
       containers: initialContainers,
+      shoppingList: initialShopping,
       saveContainers(next: StorageContainer[]) {
         subscriberEntry.containers = next.map((c) => ({ ...c }));
         try {
@@ -293,6 +341,18 @@ function getLocalStore(uid: string): LocalSubscriber {
           // Ignore storage quota errors
         }
         containersSubs.forEach((cb) => cb(subscriberEntry.containers));
+      },
+      saveShoppingList(next: ShoppingListItem[]) {
+        subscriberEntry.shoppingList = next.map((item) => ({ ...item }));
+        try {
+          localStorage.setItem(
+            `${LOCAL_SHOPPING_KEY}_${uid}`,
+            JSON.stringify(subscriberEntry.shoppingList)
+          );
+        } catch {
+          // Ignore storage quota errors
+        }
+        shoppingSubs.forEach((cb) => cb(subscriberEntry.shoppingList));
       },
       instance,
     };
@@ -343,7 +403,6 @@ function createFirestoreTransactionalEngine(): TransactionalEngine {
               location: data.location,
               quantity: Number(data.quantity),
               unit: data.unit,
-              minQuantity: Number(data.minQuantity),
               notes: data.notes ?? '',
               createdAt: timestampToIso(data.createdAt),
               updatedAt: timestampToIso(data.updatedAt),
@@ -359,7 +418,6 @@ function createFirestoreTransactionalEngine(): TransactionalEngine {
               location: product.location,
               quantity: product.quantity,
               unit: product.unit,
-              minQuantity: product.minQuantity,
               notes: product.notes ?? '',
               createdAt: Timestamp.fromDate(new Date(product.createdAt)),
               updatedAt: serverTimestamp(),
@@ -397,7 +455,7 @@ function getEngineForUser(uid: string, isDemoMode: boolean): TransactionalEngine
 }
 
 /**
- * Suscribe en tiempo real a los contenedores del usuario (ej. Nevera, Congelador, Despensa 1, Despensa 2).
+ * Suscribe en tiempo real a los contenedores del usuario.
  */
 export function subscribeToContainers(
   uid: string,
@@ -414,7 +472,6 @@ export function subscribeToContainers(
       q,
       async (snapshot) => {
         if (snapshot.empty) {
-          // Si el usuario en Cloud Firestore aún no tiene contenedores, creamos los 4 por defecto
           const defaults = getSeedContainers(uid);
           try {
             await Promise.all(
@@ -457,7 +514,7 @@ export function subscribeToContainers(
 }
 
 /**
- * Crea un nuevo contenedor (ej. "Despensa 3", "Arcón congelador", etc.).
+ * Crea un nuevo contenedor.
  */
 export async function createContainer(
   uid: string,
@@ -579,6 +636,207 @@ export async function removeContainer(
 }
 
 /**
+ * Suscribe en tiempo real a la Lista de la Compra manual del hogar.
+ */
+export function subscribeToShoppingList(
+  uid: string,
+  isDemoMode: boolean,
+  onData: (items: ShoppingListItem[]) => void,
+  onError: (error: Error) => void
+): () => void {
+  if (!isDemoMode && isFirebaseConfigured && db) {
+    const q = query(
+      collection(db, 'users', uid, 'shoppingList'),
+      orderBy('createdAt', 'desc')
+    );
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const items: ShoppingListItem[] = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            uid: data.uid,
+            name: data.name,
+            quantity: Number(data.quantity) || 1,
+            unit: data.unit || 'ud',
+            checked: Boolean(data.checked),
+            notes: data.notes ?? '',
+            productId: data.productId ?? null,
+            createdAt: timestampToIso(data.createdAt),
+          };
+        });
+        onData(items);
+      },
+      (err) => onError(err)
+    );
+  }
+
+  const store = getLocalStore(uid);
+  store.onShopping.add(onData);
+  onData(store.shoppingList);
+  return () => {
+    store.onShopping.delete(onData);
+  };
+}
+
+/**
+ * Añade manualmente un artículo a la Lista de la Compra (o suma la cantidad si ya existe sin marcar).
+ */
+export async function addShoppingListItem(
+  uid: string,
+  input: ShoppingListItemInput,
+  existingItems: ShoppingListItem[],
+  isDemoMode: boolean
+): Promise<ShoppingListItem> {
+  const valid = validateShoppingItemInput(input);
+
+  // Si ya está en la lista pendiente con el mismo nombre y unidad, sumamos su cantidad
+  const duplicatePending = existingItems.find(
+    (item) =>
+      !item.checked &&
+      item.name.trim().toLowerCase() === valid.name.toLowerCase() &&
+      item.unit === valid.unit
+  );
+
+  if (duplicatePending) {
+    const nextQty = roundQuantity(duplicatePending.quantity + valid.quantity);
+    await updateShoppingListItemQuantity(
+      uid,
+      duplicatePending.id,
+      nextQty,
+      isDemoMode
+    );
+    return { ...duplicatePending, quantity: nextQty };
+  }
+
+  const newItem: ShoppingListItem = {
+    id: crypto.randomUUID(),
+    uid,
+    name: valid.name,
+    quantity: valid.quantity,
+    unit: valid.unit,
+    checked: false,
+    notes: valid.notes ?? '',
+    productId: valid.productId ?? null,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (!isDemoMode && isFirebaseConfigured && db) {
+    const ref = doc(db, 'users', uid, 'shoppingList', newItem.id);
+    await setDoc(ref, {
+      uid,
+      name: newItem.name,
+      quantity: newItem.quantity,
+      unit: newItem.unit,
+      checked: false,
+      notes: newItem.notes,
+      productId: newItem.productId,
+      createdAt: serverTimestamp(),
+    });
+    return newItem;
+  }
+
+  const store = getLocalStore(uid);
+  store.saveShoppingList([newItem, ...store.shoppingList]);
+  return newItem;
+}
+
+/**
+ * Marca o desmarca un artículo de la lista de la compra como comprado.
+ */
+export async function toggleShoppingListItem(
+  uid: string,
+  itemId: string,
+  checked: boolean,
+  isDemoMode: boolean
+): Promise<void> {
+  if (!isDemoMode && isFirebaseConfigured && db) {
+    const ref = doc(db, 'users', uid, 'shoppingList', itemId);
+    await updateDoc(ref, { checked });
+    return;
+  }
+
+  const store = getLocalStore(uid);
+  store.saveShoppingList(
+    store.shoppingList.map((item) =>
+      item.id === itemId ? { ...item, checked } : item
+    )
+  );
+}
+
+/**
+ * Cambia la cantidad a comprar de un artículo en la lista de la compra.
+ */
+export async function updateShoppingListItemQuantity(
+  uid: string,
+  itemId: string,
+  newQuantity: number,
+  isDemoMode: boolean
+): Promise<void> {
+  const rounded = roundQuantity(newQuantity);
+  if (rounded <= 0) {
+    await removeShoppingListItem(uid, itemId, isDemoMode);
+    return;
+  }
+
+  if (!isDemoMode && isFirebaseConfigured && db) {
+    const ref = doc(db, 'users', uid, 'shoppingList', itemId);
+    await updateDoc(ref, { quantity: rounded });
+    return;
+  }
+
+  const store = getLocalStore(uid);
+  store.saveShoppingList(
+    store.shoppingList.map((item) =>
+      item.id === itemId ? { ...item, quantity: rounded } : item
+    )
+  );
+}
+
+/**
+ * Elimina un artículo de la lista de la compra.
+ */
+export async function removeShoppingListItem(
+  uid: string,
+  itemId: string,
+  isDemoMode: boolean
+): Promise<void> {
+  if (!isDemoMode && isFirebaseConfigured && db) {
+    await deleteDoc(doc(db, 'users', uid, 'shoppingList', itemId));
+    return;
+  }
+
+  const store = getLocalStore(uid);
+  store.saveShoppingList(store.shoppingList.filter((i) => i.id !== itemId));
+}
+
+/**
+ * Limpia todos los artículos ya marcados como comprados de la lista de la compra.
+ */
+export async function clearCheckedShoppingListItems(
+  uid: string,
+  existingItems: ShoppingListItem[],
+  isDemoMode: boolean
+): Promise<void> {
+  const checkedItems = existingItems.filter((i) => i.checked);
+  if (checkedItems.length === 0) return;
+
+  if (!isDemoMode && isFirebaseConfigured && db) {
+    const firestoreDb = db;
+    const batch = writeBatch(firestoreDb);
+    checkedItems.forEach((item) => {
+      batch.delete(doc(firestoreDb, 'users', uid, 'shoppingList', item.id));
+    });
+    await batch.commit();
+    return;
+  }
+
+  const store = getLocalStore(uid);
+  store.saveShoppingList(store.shoppingList.filter((i) => !i.checked));
+}
+
+/**
  * Suscribe en tiempo real a los productos del usuario.
  */
 export function subscribeToProducts(
@@ -605,7 +863,6 @@ export function subscribeToProducts(
             location: data.location,
             quantity: Number(data.quantity),
             unit: data.unit,
-            minQuantity: Number(data.minQuantity),
             notes: data.notes ?? '',
             createdAt: timestampToIso(data.createdAt),
             updatedAt: timestampToIso(data.updatedAt),

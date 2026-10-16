@@ -8,6 +8,7 @@ import {
   Product,
   ProductInput,
   ProductNotFoundError,
+  ShoppingListItemInput,
   StockStatus,
   StorageContainer,
   Unit,
@@ -73,6 +74,52 @@ export function validateContainerName(
 }
 
 /**
+ * Valida un elemento manual de la lista de la compra.
+ */
+export function validateShoppingItemInput(
+  input: ShoppingListItemInput
+): ShoppingListItemInput {
+  const name = (input.name ?? '').trim();
+  const notes = (input.notes ?? '').trim();
+
+  if (!name) {
+    throw new ValidationError(
+      'El nombre del artículo para la lista de la compra es obligatorio.'
+    );
+  }
+  if (name.length > 100) {
+    throw new ValidationError(
+      'El nombre del artículo no puede superar los 100 caracteres.'
+    );
+  }
+  if (!isValidUnit(input.unit)) {
+    throw new ValidationError(`La unidad "${input.unit}" no es válida.`);
+  }
+  if (
+    typeof input.quantity !== 'number' ||
+    Number.isNaN(input.quantity) ||
+    !Number.isFinite(input.quantity) ||
+    input.quantity <= 0
+  ) {
+    throw new ValidationError('La cantidad a comprar debe ser mayor que 0.');
+  }
+  if (input.quantity > 1_000_000) {
+    throw new ValidationError('La cantidad supera el límite permitido.');
+  }
+  if (notes.length > 300) {
+    throw new ValidationError('Las notas no pueden superar los 300 caracteres.');
+  }
+
+  return {
+    name,
+    quantity: roundQuantity(input.quantity),
+    unit: input.unit,
+    notes,
+    productId: input.productId ?? null,
+  };
+}
+
+/**
  * Valida todos los campos de entrada de un producto según las reglas de negocio y Firestore.
  */
 export function validateProductInput(input: ProductInput): ProductInput {
@@ -117,19 +164,6 @@ export function validateProductInput(input: ProductInput): ProductInput {
   if (input.quantity > 1_000_000) {
     throw new ValidationError('La cantidad supera el límite máximo permitido.');
   }
-  if (
-    typeof input.minQuantity !== 'number' ||
-    Number.isNaN(input.minQuantity) ||
-    !Number.isFinite(input.minQuantity)
-  ) {
-    throw new ValidationError('La cantidad mínima debe ser un número válido.');
-  }
-  if (input.minQuantity < 0) {
-    throw new ValidationError('La cantidad mínima no puede ser negativa.');
-  }
-  if (input.minQuantity > 1_000_000) {
-    throw new ValidationError('La cantidad mínima supera el límite máximo permitido.');
-  }
   if (notes.length > 500) {
     throw new ValidationError('Las notas no pueden superar los 500 caracteres.');
   }
@@ -140,7 +174,6 @@ export function validateProductInput(input: ProductInput): ProductInput {
     location,
     quantity: roundQuantity(input.quantity),
     unit: input.unit,
-    minQuantity: roundQuantity(input.minQuantity),
     notes,
   };
 }
@@ -167,25 +200,13 @@ export function computeNewQuantity(
 }
 
 /**
- * Determina el estado de existencias de un producto (agotado, bajo mínimo u ok).
+ * Determina el estado de existencias de un producto (agotado si es 0, u ok).
  */
-export function getStockStatus(product: Pick<Product, 'quantity' | 'minQuantity'>): StockStatus {
+export function getStockStatus(product: Pick<Product, 'quantity'>): StockStatus {
   if (product.quantity <= 0) {
     return 'agotado';
   }
-  if (product.quantity <= product.minQuantity) {
-    return 'bajo';
-  }
   return 'ok';
-}
-
-/**
- * Devuelve true si el producto está agotado o por debajo (o igual) del stock mínimo.
- */
-export function isLowOrOutOfStock(
-  product: Pick<Product, 'quantity' | 'minQuantity'>
-): boolean {
-  return getStockStatus(product) !== 'ok';
 }
 
 /**
@@ -219,21 +240,6 @@ export function filterProducts(
       return true;
     })
     .sort((a, b) => a.name.localeCompare(b.name, 'es'));
-}
-
-/**
- * Obtiene la lista automática de productos agotados o por debajo del mínimo,
- * priorizando primero los agotados y luego por orden alfabético.
- */
-export function getLowStockProducts(products: Product[]): Product[] {
-  return products
-    .filter(isLowOrOutOfStock)
-    .sort((a, b) => {
-      const aOut = a.quantity === 0 ? 0 : 1;
-      const bOut = b.quantity === 0 ? 0 : 1;
-      if (aOut !== bOut) return aOut - bOut;
-      return a.name.localeCompare(b.name, 'es');
-    });
 }
 
 /**
@@ -377,7 +383,6 @@ export async function executeCreateProductTransaction(
       location: validated.location,
       quantity: validated.quantity,
       unit: validated.unit,
-      minQuantity: validated.minQuantity,
       notes: validated.notes ?? '',
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -516,7 +521,6 @@ export async function executeUpdateProductTransaction(
       location: validated.location,
       quantity: validated.quantity,
       unit: validated.unit,
-      minQuantity: validated.minQuantity,
       notes: validated.notes ?? '',
       updatedAt: timestamp,
     };

@@ -1,10 +1,10 @@
 import React from 'react';
 import {
-  AlertTriangle,
   ArrowUpDown,
   Edit3,
   Minus,
   Plus,
+  ShoppingCart,
   Tag,
   Trash2,
   XCircle,
@@ -19,6 +19,7 @@ interface ProductCardProps {
   onQuickIncrement: (product: Product, step: number) => void;
   onQuickDecrement: (product: Product, step: number) => void;
   onOpenMovementModal: (product: Product) => void;
+  onAddToShoppingList: (product: Product) => void;
   onEdit: (product: Product) => void;
   onDeleteRequest: (product: Product) => void;
 }
@@ -29,6 +30,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onQuickIncrement,
   onQuickDecrement,
   onOpenMovementModal,
+  onAddToShoppingList,
   onEdit,
   onDeleteRequest,
 }) => {
@@ -46,8 +48,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       className={`rounded-2xl border bg-white p-4 shadow-xs transition-all ${
         stockStatus === 'agotado'
           ? 'border-rose-300 ring-1 ring-rose-200/70'
-          : stockStatus === 'bajo'
-          ? 'border-amber-300 ring-1 ring-amber-200/70'
           : 'border-slate-200 hover:border-emerald-300'
       }`}
     >
@@ -62,12 +62,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-800">
                 <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
                 Agotado
-              </span>
-            )}
-            {stockStatus === 'bajo' && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
-                <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                Stock bajo
               </span>
             )}
           </div>
@@ -131,11 +125,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           <div className="flex items-baseline gap-1.5">
             <span
               className={`text-2xl font-extrabold tracking-tight ${
-                stockStatus === 'agotado'
-                  ? 'text-rose-700'
-                  : stockStatus === 'bajo'
-                  ? 'text-amber-800'
-                  : 'text-slate-900'
+                stockStatus === 'agotado' ? 'text-rose-700' : 'text-slate-900'
               }`}
               data-testid={`quantity-${product.id}`}
             >
@@ -146,7 +136,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             </span>
           </div>
           <span className="text-[11px] font-medium text-slate-500">
-            Mínimo: {product.minQuantity} {product.unit} (paso ±{step} {product.unit})
+            Paso rápido: ±{step} {product.unit}
           </span>
         </div>
 
@@ -161,15 +151,24 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         </button>
       </div>
 
-      {/* Acción rápida secundaria: Movimiento detallado */}
-      <div className="mt-3 flex items-center justify-between gap-2">
+      {/* Acciones rápidas secundarias: Movimiento detallado y Añadir a la lista de la compra */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => onOpenMovementModal(product)}
           className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
         >
           <ArrowUpDown className="h-3.5 w-3.5" aria-hidden="true" />
-          Registrar compra / consumo / ajuste
+          Registrar movimiento
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onAddToShoppingList(product)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50/70 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+        >
+          <ShoppingCart className="h-3.5 w-3.5" aria-hidden="true" />
+          Añadir a la compra
         </button>
       </div>
     </article>

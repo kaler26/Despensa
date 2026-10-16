@@ -50,7 +50,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [newContainerName, setNewContainerName] = useState<string>('');
   const [quantity, setQuantity] = useState<string>('1');
   const [unit, setUnit] = useState<Unit>('ud');
-  const [minQuantity, setMinQuantity] = useState<string>('1');
   const [notes, setNotes] = useState<string>('');
   const [movementType, setMovementType] = useState<MovementType>('ajuste');
   const [movementNote, setMovementNote] = useState<string>('');
@@ -68,7 +67,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setLocation(initialProduct.location);
       setQuantity(String(initialProduct.quantity));
       setUnit(initialProduct.unit);
-      setMinQuantity(String(initialProduct.minQuantity));
       setNotes(initialProduct.notes ?? '');
       setMovementType('ajuste');
       setMovementNote('');
@@ -82,7 +80,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       );
       setQuantity('1');
       setUnit('ud');
-      setMinQuantity('1');
       setNotes('');
       setMovementType('compra');
       setMovementNote('');
@@ -92,7 +89,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   if (!isOpen) return null;
 
   const parsedQuantity = Number(quantity);
-  const parsedMinQuantity = Number(minQuantity);
   const quantityChanged =
     initialProduct !== null &&
     !Number.isNaN(parsedQuantity) &&
@@ -123,10 +119,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       );
       return;
     }
-    if (Number.isNaN(parsedMinQuantity) || parsedMinQuantity < 0) {
-      setFormError('La cantidad mínima debe ser un número mayor o igual a 0.');
-      return;
-    }
 
     try {
       await onSubmit(
@@ -136,7 +128,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           location,
           quantity: parsedQuantity,
           unit,
-          minQuantity: parsedMinQuantity,
           notes,
         },
         quantityChanged ? movementType : undefined,
@@ -285,8 +276,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           </div>
 
-          {/* Cantidad, Unidad y Cantidad Mínima */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {/* Cantidad y Unidad */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label
                 htmlFor="product-quantity"
@@ -325,25 +316,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div>
-              <label
-                htmlFor="product-min-quantity"
-                className="block text-sm font-semibold text-slate-700"
-              >
-                Cantidad mínima *
-              </label>
-              <input
-                id="product-min-quantity"
-                type="number"
-                required
-                min="0"
-                step="any"
-                value={minQuantity}
-                onChange={(e) => setMinQuantity(e.target.value)}
-                className="mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-2xs focus:border-emerald-600"
-              />
             </div>
           </div>
 
