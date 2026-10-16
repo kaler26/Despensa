@@ -102,11 +102,7 @@ export const App: React.FC = () => {
     useState<Product | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
-<<<<<<< HEAD
   const [isGeminiModalOpen, setIsGeminiModalOpen] = useState<boolean>(false);
-
-=======
->>>>>>> c5902575bd9a24afcf921e3ee247063444fe1018
   // Suscripción en tiempo real a productos, contenedores, lista de la compra e historial
   useEffect(() => {
     if (!user) {
