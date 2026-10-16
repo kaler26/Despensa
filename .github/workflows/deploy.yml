@@ -36,6 +36,9 @@ jobs:
       - name: Ejecutar pruebas de inventario
         run: npm test
 
+      - name: Verificar TypeScript
+        run: npx tsc --noEmit
+
       - name: Compilar aplicación PWA
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}

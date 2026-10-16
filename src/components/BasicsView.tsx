@@ -33,6 +33,7 @@ export const BasicsView: React.FC<BasicsViewProps> = ({
   basics,
   products,
   shoppingList,
+  availableContainers,
   onOpenCreateModal,
   onAddBasic,
   onEditBasic,
@@ -97,7 +98,7 @@ export const BasicsView: React.FC<BasicsViewProps> = ({
             </div>
             <p className="mt-1 text-xs text-slate-500 sm:text-sm">
               Alimentos imprescindibles en casa. Si las existencias en los
-              contenedores bajan del mínimo, se añaden a la compra.
+              contenedores ({availableContainers?.length ?? 0}) bajan del mínimo, se añaden a la compra.
             </p>
           </div>
 
