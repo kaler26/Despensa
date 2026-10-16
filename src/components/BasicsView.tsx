@@ -20,7 +20,9 @@ interface BasicsViewProps {
   basics: BasicItem[];
   products: Product[];
   shoppingList: ShoppingListItem[];
-  onAddBasic: () => void;
+  availableContainers?: string[];
+  onOpenCreateModal?: () => void;
+  onAddBasic?: () => void;
   onEditBasic: (item: BasicItem) => void;
   onDeleteBasic: (item: BasicItem) => void;
   onQuickAddToShopping: (basic: BasicItem, qty: number) => Promise<void>;
@@ -32,6 +34,8 @@ export const BasicsView: React.FC<BasicsViewProps> = ({
   basics,
   products,
   shoppingList,
+  availableContainers: _availableContainers,
+  onOpenCreateModal,
   onAddBasic,
   onEditBasic,
   onDeleteBasic,
@@ -39,6 +43,7 @@ export const BasicsView: React.FC<BasicsViewProps> = ({
   onSyncAllWithShopping,
   isSyncing,
 }) => {
+  const handleOpenCreate = onOpenCreateModal ?? onAddBasic ?? (() => {});
   const [searchTerm, setSearchTerm] = useState('');
   const [filterState, setFilterState] = useState<'todos' | 'bajos' | 'ok'>('todos');
 
@@ -114,7 +119,7 @@ export const BasicsView: React.FC<BasicsViewProps> = ({
 
             <button
               type="button"
-              onClick={onAddBasic}
+              onClick={handleOpenCreate}
               className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 transition"
             >
               <Plus className="h-4 w-4 stroke-[2.5]" />
@@ -206,7 +211,7 @@ export const BasicsView: React.FC<BasicsViewProps> = ({
           {basics.length === 0 && (
             <button
               type="button"
-              onClick={onAddBasic}
+              onClick={handleOpenCreate}
               className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 transition"
             >
               <Plus className="h-4 w-4" />

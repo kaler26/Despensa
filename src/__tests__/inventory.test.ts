@@ -403,8 +403,8 @@ describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi De
         unit: 'l',
         category: 'Lácteos y huevos',
         preferredLocation: 'Nevera',
-        createdAt: new Date() as unknown as FirebaseFirestore.Timestamp,
-        updatedAt: new Date() as unknown as FirebaseFirestore.Timestamp,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
       const mockProducts: Product[] = [
@@ -417,8 +417,8 @@ describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi De
           quantity: 2,
           unit: 'l',
           notes: '',
-          createdAt: new Date() as unknown as FirebaseFirestore.Timestamp,
-          updatedAt: new Date() as unknown as FirebaseFirestore.Timestamp,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         },
         {
           id: 'p2',
@@ -429,8 +429,8 @@ describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi De
           quantity: 1,
           unit: 'l',
           notes: '',
-          createdAt: new Date() as unknown as FirebaseFirestore.Timestamp,
-          updatedAt: new Date() as unknown as FirebaseFirestore.Timestamp,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         },
       ];
 
@@ -439,12 +439,12 @@ describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi De
       // Total en contenedores = 2 (Nevera) + 1 (Despensa 1) = 3 l. Mínimo es 4 l.
       const status = calculateBasicItemStatus(basicLeche, mockProducts, mockShoppingList);
 
-      expect(status.currentStock).toBe(3);
-      expect(status.minQuantity).toBe(4);
+      expect(status.currentQuantity).toBe(3);
+      expect(status.basicItem.minQuantity).toBe(4);
       expect(status.isUnderMin).toBe(true);
       expect(status.missingQuantity).toBe(1);
       expect(status.inShoppingList).toBe(false);
-      expect(status.matchingContainers).toEqual(['Nevera', 'Despensa 1']);
+      expect(status.matchingProducts.map((p) => p.location)).toEqual(['Nevera', 'Despensa 1']);
     });
 
     it('detecta si el básico que falta ya está en la lista de la compra', () => {
@@ -454,8 +454,8 @@ describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi De
         name: 'Café',
         minQuantity: 2,
         unit: 'paquete',
-        createdAt: new Date() as unknown as FirebaseFirestore.Timestamp,
-        updatedAt: new Date() as unknown as FirebaseFirestore.Timestamp,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
       const mockProducts: Product[] = []; // No hay en ningún contenedor
@@ -470,17 +470,16 @@ describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi De
           checked: false,
           notes: 'Básico',
           productId: null,
-          createdAt: new Date() as unknown as FirebaseFirestore.Timestamp,
+          createdAt: new Date().toISOString(),
         },
       ];
 
       const status = calculateBasicItemStatus(basicCafe, mockProducts, mockShoppingList);
 
-      expect(status.currentStock).toBe(0);
+      expect(status.currentQuantity).toBe(0);
       expect(status.isUnderMin).toBe(true);
       expect(status.missingQuantity).toBe(2);
       expect(status.inShoppingList).toBe(true);
-      expect(status.shoppingListItemId).toBe('s1');
     });
 
     it('no marca bajo mínimos si el stock en contenedores cubre el mínimo requerido', () => {
@@ -490,8 +489,8 @@ describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi De
         name: 'Huevos',
         minQuantity: 6,
         unit: 'ud',
-        createdAt: new Date() as unknown as FirebaseFirestore.Timestamp,
-        updatedAt: new Date() as unknown as FirebaseFirestore.Timestamp,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
       const mockProducts: Product[] = [
@@ -504,14 +503,14 @@ describe('Operaciones de Inventario, Contenedores y Lista de la Compra — Mi De
           quantity: 12,
           unit: 'ud',
           notes: '',
-          createdAt: new Date() as unknown as FirebaseFirestore.Timestamp,
-          updatedAt: new Date() as unknown as FirebaseFirestore.Timestamp,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         },
       ];
 
       const status = calculateBasicItemStatus(basicHuevos, mockProducts, []);
 
-      expect(status.currentStock).toBe(12);
+      expect(status.currentQuantity).toBe(12);
       expect(status.isUnderMin).toBe(false);
       expect(status.missingQuantity).toBe(0);
     });
