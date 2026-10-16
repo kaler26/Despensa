@@ -38,7 +38,14 @@ jobs:
 
       - name: Verificar TypeScript
         run: |
-          npx tsc --noEmit || (npx tsc --noEmit > tsc_errors.log 2>&1; cat tsc_errors.log; exit 1)
+          if ! npx tsc --noEmit > tsc_output.txt 2>&1; then
+            echo "## ❌ Error de compilación TypeScript" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat tsc_output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat tsc_output.txt
+            exit 1
+          fi
 
       - name: Compilar aplicación PWA
         env:
