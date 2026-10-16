@@ -1,0 +1,249 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file assumes the following data structures:
+//
+// Collection: users/{userId}/containers
+// Document ID: {containerId}
+// Fields:
+//   - uid: string (required, immutable, == userId) - Owner UID
+//   - name: string (required, 1..50 chars) - Container name (e.g. "Nevera", "Despensa 1", "Despensa 2")
+//   - type: string (required, enum: 'nevera'|'congelador'|'despensa'|'armario'|'otro')
+//   - createdAt: timestamp (required, immutable on update)
+//
+// Collection: users/{userId}/products
+// Document ID: {productId}
+// Fields:
+//   - uid: string (required, immutable, == userId) - Owner UID
+//   - name: string (required, 1..100 chars) - Product name
+//   - category: string (required, 1..50 chars) - Food category
+//   - location: string (required, 1..50 chars) - Container name (e.g. "Nevera", "Despensa 1")
+//   - quantity: number (required, >= 0 && <= 1000000) - Current stock (never negative)
+//   - unit: string (required, enum: 'ud'|'kg'|'g'|'l'|'ml'|'paquete'|'lata') - Measurement unit
+//   - minQuantity: number (required, >= 0 && <= 1000000) - Low-stock alert threshold
+//   - notes: string (required, 0..500 chars) - Additional product notes
+//   - createdAt: timestamp (required, immutable on update) - Creation timestamp
+//   - updatedAt: timestamp (required) - Last update timestamp
+//
+// Collection: users/{userId}/movements
+// Document ID: {movementId}
+// Fields:
+//   - uid: string (required, immutable, == userId) - Owner UID
+//   - productId: string (required, immutable, 1..100 chars) - Referenced product ID
+//   - productName: string (required, immutable, 1..100 chars) - Snapshot of product name
+//   - type: string (required, immutable, enum: 'compra'|'consumo'|'ajuste') - Movement type
+//   - delta: number (required, immutable, >= -1000000 && <= 1000000, != 0) - Stock change
+//   - previousQuantity: number (required, immutable, >= 0 && <= 1000000) - Stock before transaction
+//   - newQuantity: number (required, immutable, >= 0 && <= 1000000) - Stock after transaction
+//   - unit: string (required, immutable, enum: 'ud'|'kg'|'g'|'l'|'ml'|'paquete'|'lata') - Product unit
+//   - note: string (required, immutable, 0..300 chars) - Movement note
+//   - createdAt: timestamp (required, immutable) - Movement timestamp
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function uidUnchanged(userId) {
+      return ('uid' in request.resource.data) &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.uid == userId;
+    }
+
+    function uidNotModified() {
+      return ('uid' in request.resource.data) &&
+        request.resource.data.uid == resource.data.uid;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    function isValidUnit(unit) {
+      return unit is string &&
+        unit in ['ud', 'kg', 'g', 'l', 'ml', 'paquete', 'lata'];
+    }
+
+    function isValidMovementType(movType) {
+      return movType is string &&
+        movType in ['compra', 'consumo', 'ajuste'];
+    }
+
+    function isValidContainerType(contType) {
+      return contType is string &&
+        contType in ['nevera', 'congelador', 'despensa', 'armario', 'otro'];
+    }
+
+    // ===============================================================
+    // Domain Validators (Used in BOTH create and update)
+    // ===============================================================
+
+    function isValidContainer(data, userId) {
+      let requiredFields = ['uid', 'name', 'type', 'createdAt'];
+      return hasRequiredFields(requiredFields) &&
+        hasOnlyAllowedFields(requiredFields) &&
+        data.uid is string &&
+        data.uid == userId &&
+        validStringLength('name', 1, 50) &&
+        isValidContainerType(data.type) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidProduct(data, userId) {
+      let requiredFields = [
+        'uid',
+        'name',
+        'category',
+        'location',
+        'quantity',
+        'unit',
+        'minQuantity',
+        'notes',
+        'createdAt',
+        'updatedAt'
+      ];
+      return hasRequiredFields(requiredFields) &&
+        hasOnlyAllowedFields(requiredFields) &&
+        data.uid is string &&
+        data.uid == userId &&
+        validStringLength('name', 1, 100) &&
+        validStringLength('category', 1, 50) &&
+        validStringLength('location', 1, 50) &&
+        data.quantity is number &&
+        data.quantity >= 0 &&
+        data.quantity <= 1000000 &&
+        isValidUnit(data.unit) &&
+        data.minQuantity is number &&
+        data.minQuantity >= 0 &&
+        data.minQuantity <= 1000000 &&
+        validStringLength('notes', 0, 500) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMovement(data, userId) {
+      let requiredFields = [
+        'uid',
+        'productId',
+        'productName',
+        'type',
+        'delta',
+        'previousQuantity',
+        'newQuantity',
+        'unit',
+        'note',
+        'createdAt'
+      ];
+      return hasRequiredFields(requiredFields) &&
+        hasOnlyAllowedFields(requiredFields) &&
+        data.uid is string &&
+        data.uid == userId &&
+        validStringLength('productId', 1, 100) &&
+        validStringLength('productName', 1, 100) &&
+        isValidMovementType(data.type) &&
+        data.delta is number &&
+        data.delta != 0 &&
+        data.delta >= -1000000 &&
+        data.delta <= 1000000 &&
+        data.previousQuantity is number &&
+        data.previousQuantity >= 0 &&
+        data.previousQuantity <= 1000000 &&
+        data.newQuantity is number &&
+        data.newQuantity >= 0 &&
+        data.newQuantity <= 1000000 &&
+        isValidUnit(data.unit) &&
+        validStringLength('note', 0, 300) &&
+        data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read, write: if false;
+
+      // User's customizable storage containers (Nevera, Despensa 1, Despensa 2, etc.)
+      match /containers/{containerId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          uidUnchanged(userId) &&
+          isValidContainer(request.resource.data, userId);
+
+        allow update: if isOwner(userId) &&
+          isDocOwner() &&
+          uidNotModified() &&
+          areImmutableFieldsUnchanged(['uid', 'createdAt']) &&
+          isValidContainer(request.resource.data, userId);
+
+        allow delete: if isOwner(userId) && isDocOwner();
+      }
+
+      // User's private food inventory
+      match /products/{productId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          uidUnchanged(userId) &&
+          isValidProduct(request.resource.data, userId);
+
+        allow update: if isOwner(userId) &&
+          isDocOwner() &&
+          uidNotModified() &&
+          areImmutableFieldsUnchanged(['uid', 'createdAt']) &&
+          isValidProduct(request.resource.data, userId);
+
+        allow delete: if isOwner(userId) && isDocOwner();
+      }
+
+      // User's private inventory movement history (append-only audit log)
+      match /movements/{movementId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          uidUnchanged(userId) &&
+          isValidMovement(request.resource.data, userId);
+
+        allow update, delete: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
