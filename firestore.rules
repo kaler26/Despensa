@@ -4,23 +4,26 @@ rules_version = '2';
 // Assumed Data Model
 // ===============================================================
 //
-// This security rules file assumes the following data structures:
+// This security rules file assumes the following data structures
+// shared exclusively by the two authorized household owners
+// (dumber.wow@gmail.com and laura.lmp94@gmail.com) under
+// users/hogar-principal:
 //
-// Collection: users/{userId}/containers
+// Collection: users/{householdId}/containers
 // Document ID: {containerId}
 // Fields:
-//   - uid: string (required, immutable, == userId) - Owner UID
+//   - uid: string (required, immutable, == householdId)
 //   - name: string (required, 1..50 chars) - Container name (e.g. "Nevera", "Despensa 1", "Despensa 2")
 //   - type: string (required, enum: 'nevera'|'congelador'|'despensa'|'armario'|'otro')
 //   - createdAt: timestamp (required, immutable on update)
 //
-// Collection: users/{userId}/products
+// Collection: users/{householdId}/products
 // Document ID: {productId}
 // Fields:
-//   - uid: string (required, immutable, == userId) - Owner UID
+//   - uid: string (required, immutable, == householdId)
 //   - name: string (required, 1..100 chars) - Product name
 //   - category: string (required, 1..50 chars) - Food category
-//   - location: string (required, 1..50 chars) - Container name (e.g. "Nevera", "Despensa 1")
+//   - location: string (required, 1..50 chars) - Container name
 //   - quantity: number (required, >= 0 && <= 1000000) - Current stock (never negative)
 //   - unit: string (required, enum: 'ud'|'kg'|'g'|'l'|'ml'|'paquete'|'lata') - Measurement unit
 //   - minQuantity: number (required, >= 0 && <= 1000000) - Low-stock alert threshold
@@ -28,10 +31,10 @@ rules_version = '2';
 //   - createdAt: timestamp (required, immutable on update) - Creation timestamp
 //   - updatedAt: timestamp (required) - Last update timestamp
 //
-// Collection: users/{userId}/movements
+// Collection: users/{householdId}/movements
 // Document ID: {movementId}
 // Fields:
-//   - uid: string (required, immutable, == userId) - Owner UID
+//   - uid: string (required, immutable, == householdId)
 //   - productId: string (required, immutable, 1..100 chars) - Referenced product ID
 //   - productName: string (required, immutable, 1..100 chars) - Snapshot of product name
 //   - type: string (required, immutable, enum: 'compra'|'consumo'|'ajuste') - Movement type
@@ -55,18 +58,24 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+    // Only Dani and Laura's verified Google accounts are authorized to access the shared household pantry
+    function isAuthorizedHouseholdMember(householdId) {
+      return isAuthenticated() &&
+        householdId == 'hogar-principal' &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email in [
+          'dumber.wow@gmail.com',
+          'laura.lmp94@gmail.com'
+        ];
     }
 
-    function isDocOwner() {
-      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    function isDocHousehold(householdId) {
+      return resource.data.uid == householdId;
     }
 
-    function uidUnchanged(userId) {
+    function uidUnchanged(householdId) {
       return ('uid' in request.resource.data) &&
-        request.resource.data.uid == request.auth.uid &&
-        request.resource.data.uid == userId;
+        request.resource.data.uid == householdId;
     }
 
     function uidNotModified() {
@@ -111,18 +120,18 @@ service cloud.firestore {
     // Domain Validators (Used in BOTH create and update)
     // ===============================================================
 
-    function isValidContainer(data, userId) {
+    function isValidContainer(data, householdId) {
       let requiredFields = ['uid', 'name', 'type', 'createdAt'];
       return hasRequiredFields(requiredFields) &&
         hasOnlyAllowedFields(requiredFields) &&
         data.uid is string &&
-        data.uid == userId &&
+        data.uid == householdId &&
         validStringLength('name', 1, 50) &&
         isValidContainerType(data.type) &&
         data.createdAt is timestamp;
     }
 
-    function isValidProduct(data, userId) {
+    function isValidProduct(data, householdId) {
       let requiredFields = [
         'uid',
         'name',
@@ -138,7 +147,7 @@ service cloud.firestore {
       return hasRequiredFields(requiredFields) &&
         hasOnlyAllowedFields(requiredFields) &&
         data.uid is string &&
-        data.uid == userId &&
+        data.uid == householdId &&
         validStringLength('name', 1, 100) &&
         validStringLength('category', 1, 50) &&
         validStringLength('location', 1, 50) &&
@@ -154,7 +163,7 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
-    function isValidMovement(data, userId) {
+    function isValidMovement(data, householdId) {
       let requiredFields = [
         'uid',
         'productId',
@@ -170,7 +179,7 @@ service cloud.firestore {
       return hasRequiredFields(requiredFields) &&
         hasOnlyAllowedFields(requiredFields) &&
         data.uid is string &&
-        data.uid == userId &&
+        data.uid == householdId &&
         validStringLength('productId', 1, 100) &&
         validStringLength('productName', 1, 100) &&
         isValidMovementType(data.type) &&
@@ -193,50 +202,52 @@ service cloud.firestore {
     // Collection Rules
     // ===============================================================
 
-    match /users/{userId} {
+    match /users/{householdId} {
       allow read, write: if false;
 
-      // User's customizable storage containers (Nevera, Despensa 1, Despensa 2, etc.)
+      // Shared household storage containers (Nevera, Despensa 1, Despensa 2, etc.)
       match /containers/{containerId} {
-        allow read: if isOwner(userId);
+        allow read: if isAuthorizedHouseholdMember(householdId);
 
-        allow create: if isOwner(userId) &&
-          uidUnchanged(userId) &&
-          isValidContainer(request.resource.data, userId);
+        allow create: if isAuthorizedHouseholdMember(householdId) &&
+          uidUnchanged(householdId) &&
+          isValidContainer(request.resource.data, householdId);
 
-        allow update: if isOwner(userId) &&
-          isDocOwner() &&
+        allow update: if isAuthorizedHouseholdMember(householdId) &&
+          isDocHousehold(householdId) &&
           uidNotModified() &&
           areImmutableFieldsUnchanged(['uid', 'createdAt']) &&
-          isValidContainer(request.resource.data, userId);
+          isValidContainer(request.resource.data, householdId);
 
-        allow delete: if isOwner(userId) && isDocOwner();
+        allow delete: if isAuthorizedHouseholdMember(householdId) &&
+          isDocHousehold(householdId);
       }
 
-      // User's private food inventory
+      // Shared household food inventory
       match /products/{productId} {
-        allow read: if isOwner(userId);
+        allow read: if isAuthorizedHouseholdMember(householdId);
 
-        allow create: if isOwner(userId) &&
-          uidUnchanged(userId) &&
-          isValidProduct(request.resource.data, userId);
+        allow create: if isAuthorizedHouseholdMember(householdId) &&
+          uidUnchanged(householdId) &&
+          isValidProduct(request.resource.data, householdId);
 
-        allow update: if isOwner(userId) &&
-          isDocOwner() &&
+        allow update: if isAuthorizedHouseholdMember(householdId) &&
+          isDocHousehold(householdId) &&
           uidNotModified() &&
           areImmutableFieldsUnchanged(['uid', 'createdAt']) &&
-          isValidProduct(request.resource.data, userId);
+          isValidProduct(request.resource.data, householdId);
 
-        allow delete: if isOwner(userId) && isDocOwner();
+        allow delete: if isAuthorizedHouseholdMember(householdId) &&
+          isDocHousehold(householdId);
       }
 
-      // User's private inventory movement history (append-only audit log)
+      // Shared household inventory movement history (append-only audit log)
       match /movements/{movementId} {
-        allow read: if isOwner(userId);
+        allow read: if isAuthorizedHouseholdMember(householdId);
 
-        allow create: if isOwner(userId) &&
-          uidUnchanged(userId) &&
-          isValidMovement(request.resource.data, userId);
+        allow create: if isAuthorizedHouseholdMember(householdId) &&
+          uidUnchanged(householdId) &&
+          isValidMovement(request.resource.data, householdId);
 
         allow update, delete: if false;
       }
