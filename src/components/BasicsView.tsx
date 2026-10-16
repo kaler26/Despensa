@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  AlertCircle,
   AlertTriangle,
   CheckCircle2,
   Edit2,
@@ -34,7 +33,6 @@ export const BasicsView: React.FC<BasicsViewProps> = ({
   basics,
   products,
   shoppingList,
-  availableContainers: _availableContainers,
   onOpenCreateModal,
   onAddBasic,
   onEditBasic,

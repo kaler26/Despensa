@@ -6,7 +6,7 @@
   "description": "Aplicación web PWA para gestionar el inventario doméstico de alimentos",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
