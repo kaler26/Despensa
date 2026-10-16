@@ -1,5 +1,8 @@
 import {
   ALLOWED_UNITS,
+  BasicItem,
+  BasicItemInput,
+  BasicItemStatus,
   ContainerType,
   InventoryFilter,
   Movement,
@@ -8,6 +11,7 @@ import {
   Product,
   ProductInput,
   ProductNotFoundError,
+  ShoppingListItem,
   ShoppingListItemInput,
   StockStatus,
   StorageContainer,
@@ -116,6 +120,123 @@ export function validateShoppingItemInput(
     unit: input.unit,
     notes,
     productId: input.productId ?? null,
+  };
+}
+
+/**
+ * Normaliza cadenas para comparación flexible sin tildes ni mayúsculas.
+ */
+export function normalizeString(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+/**
+ * Valida un elemento básico / stock mínimo.
+ */
+export function validateBasicItemInput(input: BasicItemInput): BasicItemInput {
+  const name = (input.name ?? '').trim();
+  const category = (input.category ?? '').trim();
+  const preferredLocation = (input.preferredLocation ?? '').trim();
+  const notes = (input.notes ?? '').trim();
+
+  if (!name) {
+    throw new ValidationError('El nombre del producto básico es obligatorio.');
+  }
+  if (name.length > 100) {
+    throw new ValidationError('El nombre no puede superar los 100 caracteres.');
+  }
+  if (!category) {
+    throw new ValidationError('La categoría es obligatoria.');
+  }
+  if (category.length > 50) {
+    throw new ValidationError('La categoría no puede superar los 50 caracteres.');
+  }
+  if (!isValidUnit(input.unit)) {
+    throw new ValidationError(`La unidad "${input.unit}" no es válida.`);
+  }
+  if (
+    typeof input.minQuantity !== 'number' ||
+    Number.isNaN(input.minQuantity) ||
+    !Number.isFinite(input.minQuantity) ||
+    input.minQuantity <= 0
+  ) {
+    throw new ValidationError('La cantidad mínima debe ser mayor que 0.');
+  }
+  if (input.minQuantity > 1_000_000) {
+    throw new ValidationError('La cantidad mínima supera el límite permitido.');
+  }
+  if (preferredLocation && preferredLocation.length > 50) {
+    throw new ValidationError(
+      'El contenedor preferido no puede superar los 50 caracteres.'
+    );
+  }
+  if (notes.length > 500) {
+    throw new ValidationError('Las notas no pueden superar los 500 caracteres.');
+  }
+
+  return {
+    name,
+    minQuantity: roundQuantity(input.minQuantity),
+    unit: input.unit,
+    category,
+    preferredLocation: preferredLocation || undefined,
+    notes: notes || undefined,
+  };
+}
+
+/**
+ * Calcula el estado de existencias de un básico frente a los productos de los contenedores.
+ */
+export function calculateBasicItemStatus(
+  basic: BasicItem,
+  products: Product[],
+  shoppingList: ShoppingListItem[]
+): BasicItemStatus {
+  const normBasic = normalizeString(basic.name);
+
+  // Coincidencias de productos en inventario con nombre compatible y misma unidad
+  const matchingProducts = products.filter((p) => {
+    const normProd = normalizeString(p.name);
+    const nameMatches =
+      normProd === normBasic ||
+      normProd.includes(normBasic) ||
+      normBasic.includes(normProd);
+    const unitMatches = p.unit === basic.unit;
+    return nameMatches && unitMatches;
+  });
+
+  const currentQuantity = roundQuantity(
+    matchingProducts.reduce((sum, p) => sum + (p.quantity || 0), 0)
+  );
+
+  const isUnderMin = currentQuantity < basic.minQuantity;
+  const isOutOfStock = currentQuantity <= 0;
+  const missingQuantity = isUnderMin
+    ? roundQuantity(basic.minQuantity - currentQuantity)
+    : 0;
+
+  // Comprobar si ya está en la lista de la compra pendiente
+  const inShoppingList = shoppingList.some(
+    (item) =>
+      !item.checked &&
+      (normalizeString(item.name) === normBasic ||
+        normalizeString(item.name).includes(normBasic) ||
+        normBasic.includes(normalizeString(item.name))) &&
+      item.unit === basic.unit
+  );
+
+  return {
+    basicItem: basic,
+    currentQuantity,
+    isUnderMin,
+    isOutOfStock,
+    missingQuantity,
+    inShoppingList,
+    matchingProducts,
   };
 }
 

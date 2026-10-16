@@ -12,12 +12,15 @@ import {
   Plus,
   Search,
   Settings2,
+  ShieldCheck,
   ShoppingCart,
   Sparkles,
   X,
 } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import {
+  BasicItem,
+  BasicItemInput,
   CATEGORIES,
   Movement,
   MovementType,
@@ -29,22 +32,30 @@ import {
   Unit,
   UNIT_STEP,
 } from './types/inventory';
-import { filterProducts } from './domain/inventoryLogic';
+import {
+  calculateBasicItemStatus,
+  filterProducts,
+} from './domain/inventoryLogic';
 import {
   addShoppingListItem,
   changeProductStock,
   clearCheckedShoppingListItems,
+  createBasicItem,
   createContainer,
   createProduct,
+  removeBasicItem,
   removeContainer,
   removeProduct,
   removeShoppingListItem,
   renameContainer,
+  subscribeToBasics,
   subscribeToContainers,
   subscribeToMovements,
   subscribeToProducts,
   subscribeToShoppingList,
+  syncBasicsWithShoppingList,
   toggleShoppingListItem,
+  updateBasicItem,
   updateProduct,
   updateShoppingListItemQuantity,
 } from './services/inventoryService';
@@ -54,6 +65,8 @@ import { StockMovementModal } from './components/StockMovementModal';
 import { ConfirmDeleteModal } from './components/ConfirmDeleteModal';
 import { MovementsHistoryView } from './components/MovementsHistoryView';
 import { ShoppingListView } from './components/ShoppingListView';
+import { BasicsView } from './components/BasicsView';
+import { BasicItemFormModal } from './components/BasicItemFormModal';
 import { LoginView } from './components/LoginView';
 import {
   ContainerManagerModal,
@@ -62,7 +75,7 @@ import {
 import { GeminiAssistantModal } from './components/GeminiAssistantModal';
 import { GeminiAction } from './types/gemini';
 
-type ActiveTab = 'inventario' | 'compra' | 'historial';
+type ActiveTab = 'inventario' | 'basicos' | 'compra' | 'historial';
 
 export const App: React.FC = () => {
   const { user, loading: authLoading, signOut, isFirebaseReady } = useAuth();
@@ -71,6 +84,7 @@ export const App: React.FC = () => {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [containers, setContainers] = useState<StorageContainer[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingListItem[]>([]);
+  const [basics, setBasics] = useState<BasicItem[]>([]);
   const [dataLoading, setDataLoading] = useState<boolean>(true);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
@@ -94,6 +108,11 @@ export const App: React.FC = () => {
   const [isContainerManagerOpen, setIsContainerManagerOpen] =
     useState<boolean>(false);
 
+  const [isBasicFormOpen, setIsBasicFormOpen] = useState<boolean>(false);
+  const [editingBasic, setEditingBasic] = useState<BasicItem | null>(null);
+  const [isSavingBasic, setIsSavingBasic] = useState<boolean>(false);
+  const [isSyncingBasics, setIsSyncingBasics] = useState<boolean>(false);
+
   const [movementModalProduct, setMovementModalProduct] =
     useState<Product | null>(null);
   const [isSavingMovement, setIsSavingMovement] = useState<boolean>(false);
@@ -110,6 +129,7 @@ export const App: React.FC = () => {
       setMovements([]);
       setContainers([]);
       setShoppingList([]);
+      setBasics([]);
       setDataLoading(false);
       return;
     }
@@ -173,13 +193,54 @@ export const App: React.FC = () => {
       }
     );
 
+    const unsubBasics = subscribeToBasics(
+      user.uid,
+      user.isDemo,
+      (items) => {
+        setBasics(items);
+      },
+      (err) => {
+        setErrorBanner(
+          `Error al cargar productos básicos: ${err.message || 'Error desconocido'}`
+        );
+      }
+    );
+
     return () => {
       unsubContainers();
       unsubProducts();
       unsubShopping();
       unsubMovements();
+      unsubBasics();
     };
   }, [user]);
+
+  // Vigilancia automática de básicos: si se consumen o agotan en los contenedores y quedan bajo mínimos,
+  // se añaden automáticamente a la lista de la compra (sin duplicar).
+  useEffect(() => {
+    if (!user || dataLoading || basics.length === 0) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await syncBasicsWithShoppingList(
+          user.uid,
+          basics,
+          products,
+          shoppingList,
+          user.isDemo
+        );
+        if (result.addedCount > 0) {
+          setFeedbackToast(
+            `Básicos bajo mínimos: ${result.addedNames.join(', ')} añadido(s) automáticamente a la lista de la compra.`
+          );
+        }
+      } catch {
+        // Silencioso para no interrumpir la navegación del usuario
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [user, products, basics, shoppingList, dataLoading]);
 
   // Auto-ocultar toast informativo
   useEffect(() => {
@@ -202,6 +263,13 @@ export const App: React.FC = () => {
     () => shoppingList.filter((item) => !item.checked).length,
     [shoppingList]
   );
+
+  const basicsUnderMinCount = useMemo(() => {
+    return basics.filter((b) => {
+      const status = calculateBasicItemStatus(b, products, shoppingList);
+      return status.isUnderMin;
+    }).length;
+  }, [basics, products, shoppingList]);
 
   const availableCategories = useMemo(() => {
     const dynamic = new Set<string>(CATEGORIES);
@@ -392,6 +460,109 @@ export const App: React.FC = () => {
       }
     } finally {
       setIsSavingForm(false);
+    }
+  };
+
+  const handleSaveBasicForm = async (input: BasicItemInput) => {
+    if (!user) return;
+    setErrorBanner(null);
+    setIsSavingBasic(true);
+    try {
+      if (editingBasic) {
+        await updateBasicItem(
+          user.uid,
+          editingBasic.id,
+          input,
+          user.isDemo
+        );
+        setFeedbackToast(`Básico "${input.name}" actualizado.`);
+      } else {
+        await createBasicItem(user.uid, input, user.isDemo);
+        setFeedbackToast(`Básico "${input.name}" añadido a la lista.`);
+      }
+      setIsBasicFormOpen(false);
+      setEditingBasic(null);
+    } catch (err: unknown) {
+      setErrorBanner(
+        err instanceof Error
+          ? err.message
+          : 'Error al guardar el producto básico.'
+      );
+    } finally {
+      setIsSavingBasic(false);
+    }
+  };
+
+  const handleDeleteBasic = async (item: BasicItem) => {
+    if (!user) return;
+    try {
+      await removeBasicItem(user.uid, item.id, user.isDemo);
+      setFeedbackToast(`Básico "${item.name}" eliminado.`);
+    } catch (err: unknown) {
+      setErrorBanner(
+        err instanceof Error
+          ? err.message
+          : 'Error al eliminar el producto básico.'
+      );
+    }
+  };
+
+  const handleQuickAddBasicToShopping = async (
+    basic: BasicItem,
+    qtyToAdd: number
+  ) => {
+    if (!user) return;
+    try {
+      await addShoppingListItem(
+        user.uid,
+        {
+          name: basic.name,
+          quantity: Math.max(0.1, Number(qtyToAdd.toFixed(2))),
+          unit: basic.unit,
+          notes: basic.preferredLocation
+            ? `Básico (${basic.preferredLocation})`
+            : 'Básico indispensable',
+        },
+        shoppingList,
+        user.isDemo
+      );
+      setFeedbackToast(`"${basic.name}" añadido a la lista de la compra.`);
+    } catch (err: unknown) {
+      setErrorBanner(
+        err instanceof Error
+          ? err.message
+          : 'Error al añadir el básico a la compra.'
+      );
+    }
+  };
+
+  const handleSyncAllBasicsWithShopping = async () => {
+    if (!user) return;
+    setIsSyncingBasics(true);
+    setErrorBanner(null);
+    try {
+      const result = await syncBasicsWithShoppingList(
+        user.uid,
+        basics,
+        products,
+        shoppingList,
+        user.isDemo
+      );
+      if (result.addedCount > 0) {
+        setFeedbackToast(
+          `Sincronización completada: ${result.addedNames.join(', ')} añadido(s) a la compra.`
+        );
+      } else {
+        setFeedbackToast('Todos los productos básicos tienen sus mínimos cubiertos.');
+      }
+    } catch (err: unknown) {
+      setErrorBanner(
+        err instanceof Error
+          ? err.message
+          : 'Error al sincronizar básicos con la lista de la compra.'
+      );
+    } finally {
+      setIsSyncingBasics(false);
     }
   };
 
@@ -694,6 +865,27 @@ export const App: React.FC = () => {
 
           <button
             type="button"
+            onClick={() => setActiveTab('basicos')}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+              activeTab === 'basicos'
+                ? 'bg-slate-900 text-white'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+            Básicos ({basics.length})
+            {basicsUnderMinCount > 0 && (
+              <span
+                className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white animate-pulse"
+                title={`${basicsUnderMinCount} básicos bajo mínimos`}
+              >
+                {basicsUnderMinCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('compra')}
             className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
               activeTab === 'compra'
@@ -769,7 +961,7 @@ export const App: React.FC = () => {
         {/* Tarjetas de resumen rápido */}
         <section
           aria-label="Resumen del estado de la despensa"
-          className="grid grid-cols-3 gap-2 sm:gap-4"
+          className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-4"
         >
           <button
             type="button"
@@ -783,6 +975,36 @@ export const App: React.FC = () => {
             <span className="mt-1 text-xl font-extrabold text-slate-900 sm:text-2xl">
               {products.length}
             </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('basicos')}
+            className={`flex min-w-0 flex-col items-start rounded-2xl border p-2.5 text-left shadow-2xs transition sm:p-3.5 ${
+              basicsUnderMinCount > 0
+                ? 'border-amber-300 bg-amber-50/70 hover:border-amber-400'
+                : 'border-slate-200 bg-white hover:border-emerald-300'
+            }`}
+          >
+            <div className="flex items-center gap-1 text-[11px] font-semibold text-slate-700 sm:gap-1.5 sm:text-xs">
+              <ShieldCheck
+                className={`h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4 ${
+                  basicsUnderMinCount > 0 ? 'text-amber-600' : 'text-emerald-600'
+                }`}
+                aria-hidden="true"
+              />
+              <span className="truncate">Básicos</span>
+            </div>
+            <div className="mt-1 flex items-baseline gap-1.5">
+              <span className="text-xl font-extrabold text-slate-900 sm:text-2xl">
+                {basics.length}
+              </span>
+              {basicsUnderMinCount > 0 && (
+                <span className="text-[11px] font-bold text-amber-700 sm:text-xs">
+                  ({basicsUnderMinCount} a reponer)
+                </span>
+              )}
+            </div>
           </button>
 
           <button
@@ -1034,6 +1256,28 @@ export const App: React.FC = () => {
               </section>
             )}
 
+            {/* VISTA: PRODUCTOS BÁSICOS INDISPENSABLES Y REVISIÓN DE MÍNIMOS */}
+            {activeTab === 'basicos' && (
+              <BasicsView
+                basics={basics}
+                products={products}
+                shoppingList={shoppingList}
+                availableContainers={availableContainerNames}
+                isSyncing={isSyncingBasics}
+                onOpenCreateModal={() => {
+                  setEditingBasic(null);
+                  setIsBasicFormOpen(true);
+                }}
+                onEditBasic={(item) => {
+                  setEditingBasic(item);
+                  setIsBasicFormOpen(true);
+                }}
+                onDeleteBasic={handleDeleteBasic}
+                onQuickAddToShopping={handleQuickAddBasicToShopping}
+                onSyncAllWithShopping={handleSyncAllBasicsWithShopping}
+              />
+            )}
+
             {/* VISTA 2: LISTA DE LA COMPRA MANUAL */}
             {activeTab === 'compra' && (
               <ShoppingListView
@@ -1070,6 +1314,27 @@ export const App: React.FC = () => {
         >
           <Package className="h-5 w-5" aria-hidden="true" />
           <span className="mt-0.5">Inventario</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('basicos')}
+          className={`relative flex flex-1 flex-col items-center justify-center rounded-xl py-1.5 text-xs font-semibold ${
+            activeTab === 'basicos'
+              ? 'text-emerald-700'
+              : 'text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+          <span className="mt-0.5">Básicos</span>
+          {basicsUnderMinCount > 0 && (
+            <span
+              className="absolute right-5 top-1 rounded-full bg-amber-500 px-1.5 py-0.2 text-[10px] font-bold text-white animate-pulse"
+              title={`${basicsUnderMinCount} básicos bajo mínimos`}
+            >
+              {basicsUnderMinCount}
+            </span>
+          )}
         </button>
 
         <button
@@ -1136,6 +1401,18 @@ export const App: React.FC = () => {
         }}
         onCreateContainerInline={handleCreateContainer}
         onSubmit={handleSaveProductForm}
+      />
+
+      <BasicItemFormModal
+        isOpen={isBasicFormOpen}
+        initialItem={editingBasic}
+        containers={containers}
+        isSubmitting={isSavingBasic}
+        onClose={() => {
+          setIsBasicFormOpen(false);
+          setEditingBasic(null);
+        }}
+        onSubmit={handleSaveBasicForm}
       />
 
       <ContainerManagerModal

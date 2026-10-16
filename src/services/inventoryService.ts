@@ -16,6 +16,8 @@ import {
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../lib/firebase';
 import {
+  BasicItem,
+  BasicItemInput,
   DEFAULT_CONTAINERS,
   Movement,
   MovementType,
@@ -28,6 +30,7 @@ import {
   ValidationError,
 } from '../types/inventory';
 import {
+  calculateBasicItemStatus,
   createInMemoryTransactionalEngine,
   executeCreateProductTransaction,
   executeStockChangeTransaction,
@@ -36,6 +39,7 @@ import {
   roundQuantity,
   TransactionalEngine,
   TransactionStoreAdapter,
+  validateBasicItemInput,
   validateContainerName,
   validateShoppingItemInput,
 } from '../domain/inventoryLogic';
@@ -44,6 +48,7 @@ const LOCAL_PRODUCTS_KEY = 'mi_despensa_products_v3';
 const LOCAL_MOVEMENTS_KEY = 'mi_despensa_movements_v3';
 const LOCAL_CONTAINERS_KEY = 'mi_despensa_containers_v3';
 const LOCAL_SHOPPING_KEY = 'mi_despensa_shopping_v3';
+const LOCAL_BASICS_KEY = 'mi_despensa_basics_v3';
 
 export function getSeedContainers(uid: string): StorageContainer[] {
   const isoNow = new Date().toISOString();
@@ -80,6 +85,60 @@ export function getSeedShoppingList(uid: string): ShoppingListItem[] {
       notes: 'Pack de 6 bricks',
       productId: 'prod-leche-entera',
       createdAt: isoNow,
+    },
+  ];
+}
+
+export function getSeedBasics(uid: string): BasicItem[] {
+  const isoNow = new Date().toISOString();
+  return [
+    {
+      id: 'basic-1',
+      uid,
+      name: 'Huevos',
+      minQuantity: 6,
+      unit: 'ud',
+      category: 'Lácteos y huevos',
+      preferredLocation: 'Nevera',
+      notes: 'Mínimo media docena',
+      createdAt: isoNow,
+      updatedAt: isoNow,
+    },
+    {
+      id: 'basic-2',
+      uid,
+      name: 'Leche entera',
+      minQuantity: 2,
+      unit: 'l',
+      category: 'Lácteos y huevos',
+      preferredLocation: 'Nevera',
+      notes: 'Mínimo 2 bricks de 1 l',
+      createdAt: isoNow,
+      updatedAt: isoNow,
+    },
+    {
+      id: 'basic-3',
+      uid,
+      name: 'Aceite de oliva',
+      minQuantity: 1,
+      unit: 'l',
+      category: 'Aceites y condimentos',
+      preferredLocation: 'Despensa 1',
+      notes: 'Virgen extra',
+      createdAt: isoNow,
+      updatedAt: isoNow,
+    },
+    {
+      id: 'basic-4',
+      uid,
+      name: 'Café',
+      minQuantity: 1,
+      unit: 'paquete',
+      category: 'Panadería y desayuno',
+      preferredLocation: 'Despensa 1',
+      notes: 'Molido tueste natural',
+      createdAt: isoNow,
+      updatedAt: isoNow,
     },
   ];
 }
@@ -283,15 +342,32 @@ function loadLocalShoppingList(uid: string): ShoppingListItem[] {
   }
 }
 
+function loadLocalBasics(uid: string): BasicItem[] {
+  try {
+    const raw = localStorage.getItem(`${LOCAL_BASICS_KEY}_${uid}`);
+    if (!raw) {
+      const seeded = getSeedBasics(uid);
+      localStorage.setItem(`${LOCAL_BASICS_KEY}_${uid}`, JSON.stringify(seeded));
+      return seeded;
+    }
+    return JSON.parse(raw) as BasicItem[];
+  } catch {
+    return getSeedBasics(uid);
+  }
+}
+
 type LocalSubscriber = {
   onProducts: Set<(products: Product[]) => void>;
   onMovements: Set<(movements: Movement[]) => void>;
   onContainers: Set<(containers: StorageContainer[]) => void>;
   onShopping: Set<(items: ShoppingListItem[]) => void>;
+  onBasics: Set<(items: BasicItem[]) => void>;
   containers: StorageContainer[];
   shoppingList: ShoppingListItem[];
+  basics: BasicItem[];
   saveContainers: (next: StorageContainer[]) => void;
   saveShoppingList: (next: ShoppingListItem[]) => void;
+  saveBasics: (next: BasicItem[]) => void;
   instance: ReturnType<typeof createInMemoryTransactionalEngine>;
 };
 
@@ -304,9 +380,11 @@ function getLocalStore(uid: string): LocalSubscriber {
     const movementsSubs = new Set<(movements: Movement[]) => void>();
     const containersSubs = new Set<(containers: StorageContainer[]) => void>();
     const shoppingSubs = new Set<(items: ShoppingListItem[]) => void>();
+    const basicsSubs = new Set<(items: BasicItem[]) => void>();
 
     const initialContainers = loadLocalContainers(uid);
     const initialShopping = loadLocalShoppingList(uid);
+    const initialBasics = loadLocalBasics(uid);
 
     const instance = createInMemoryTransactionalEngine(
       loadLocalProducts(uid),
@@ -328,8 +406,10 @@ function getLocalStore(uid: string): LocalSubscriber {
       onMovements: movementsSubs,
       onContainers: containersSubs,
       onShopping: shoppingSubs,
+      onBasics: basicsSubs,
       containers: initialContainers,
       shoppingList: initialShopping,
+      basics: initialBasics,
       saveContainers(next: StorageContainer[]) {
         subscriberEntry.containers = next.map((c) => ({ ...c }));
         try {
@@ -353,6 +433,18 @@ function getLocalStore(uid: string): LocalSubscriber {
           // Ignore storage quota errors
         }
         shoppingSubs.forEach((cb) => cb(subscriberEntry.shoppingList));
+      },
+      saveBasics(next: BasicItem[]) {
+        subscriberEntry.basics = next.map((item) => ({ ...item }));
+        try {
+          localStorage.setItem(
+            `${LOCAL_BASICS_KEY}_${uid}`,
+            JSON.stringify(subscriberEntry.basics)
+          );
+        } catch {
+          // Ignore storage quota errors
+        }
+        basicsSubs.forEach((cb) => cb(subscriberEntry.basics));
       },
       instance,
     };
@@ -1002,6 +1094,209 @@ export async function removeProduct(
   }
   const store = getLocalStore(uid);
   await store.instance.deleteProduct(uid, productId);
+}
+
+/**
+ * Suscribe en tiempo real a la lista de Básicos del hogar.
+ */
+export function subscribeToBasics(
+  uid: string,
+  isDemoMode: boolean,
+  onData: (items: BasicItem[]) => void,
+  onError: (error: Error) => void
+): () => void {
+  if (!isDemoMode && isFirebaseConfigured && db) {
+    const q = query(
+      collection(db, 'users', uid, 'basics'),
+      orderBy('createdAt', 'desc')
+    );
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const items: BasicItem[] = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            uid: data.uid,
+            name: data.name,
+            minQuantity: Number(data.minQuantity) || 1,
+            unit: data.unit || 'ud',
+            category: data.category || 'Otros',
+            preferredLocation: data.preferredLocation || undefined,
+            notes: data.notes || undefined,
+            createdAt: timestampToIso(data.createdAt),
+            updatedAt: timestampToIso(data.updatedAt),
+          };
+        });
+        onData(items);
+      },
+      (err) => onError(err)
+    );
+  }
+
+  const store = getLocalStore(uid);
+  store.onBasics.add(onData);
+  onData(store.basics);
+  return () => {
+    store.onBasics.delete(onData);
+  };
+}
+
+/**
+ * Crea un nuevo producto básico.
+ */
+export async function createBasicItem(
+  uid: string,
+  input: BasicItemInput,
+  isDemoMode: boolean
+): Promise<BasicItem> {
+  const valid = validateBasicItemInput(input);
+  const now = new Date().toISOString();
+  const newItem: BasicItem = {
+    id: crypto.randomUUID(),
+    uid,
+    name: valid.name,
+    minQuantity: valid.minQuantity,
+    unit: valid.unit,
+    category: valid.category,
+    preferredLocation: valid.preferredLocation,
+    notes: valid.notes,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  if (!isDemoMode && isFirebaseConfigured && db) {
+    const ref = doc(db, 'users', uid, 'basics', newItem.id);
+    await setDoc(ref, {
+      uid,
+      name: newItem.name,
+      minQuantity: newItem.minQuantity,
+      unit: newItem.unit,
+      category: newItem.category,
+      preferredLocation: newItem.preferredLocation || null,
+      notes: newItem.notes || null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return newItem;
+  }
+
+  const store = getLocalStore(uid);
+  store.saveBasics([newItem, ...store.basics]);
+  return newItem;
+}
+
+/**
+ * Actualiza un producto básico existente.
+ */
+export async function updateBasicItem(
+  uid: string,
+  itemId: string,
+  input: BasicItemInput,
+  isDemoMode: boolean
+): Promise<BasicItem> {
+  const valid = validateBasicItemInput(input);
+  const now = new Date().toISOString();
+
+  if (!isDemoMode && isFirebaseConfigured && db) {
+    const ref = doc(db, 'users', uid, 'basics', itemId);
+    await updateDoc(ref, {
+      name: valid.name,
+      minQuantity: valid.minQuantity,
+      unit: valid.unit,
+      category: valid.category,
+      preferredLocation: valid.preferredLocation || null,
+      notes: valid.notes || null,
+      updatedAt: serverTimestamp(),
+    });
+    return {
+      id: itemId,
+      uid,
+      name: valid.name,
+      minQuantity: valid.minQuantity,
+      unit: valid.unit,
+      category: valid.category,
+      preferredLocation: valid.preferredLocation,
+      notes: valid.notes,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  const store = getLocalStore(uid);
+  const existing = store.basics.find((b) => b.id === itemId);
+  if (!existing) {
+    throw new ValidationError('El producto básico no existe.');
+  }
+  const updated: BasicItem = {
+    ...existing,
+    name: valid.name,
+    minQuantity: valid.minQuantity,
+    unit: valid.unit,
+    category: valid.category,
+    preferredLocation: valid.preferredLocation,
+    notes: valid.notes,
+    updatedAt: now,
+  };
+  store.saveBasics(store.basics.map((b) => (b.id === itemId ? updated : b)));
+  return updated;
+}
+
+/**
+ * Elimina un producto básico de la lista.
+ */
+export async function removeBasicItem(
+  uid: string,
+  itemId: string,
+  isDemoMode: boolean
+): Promise<void> {
+  if (!isDemoMode && isFirebaseConfigured && db) {
+    const ref = doc(db, 'users', uid, 'basics', itemId);
+    await deleteDoc(ref);
+    return;
+  }
+  const store = getLocalStore(uid);
+  store.saveBasics(store.basics.filter((b) => b.id !== itemId));
+}
+
+/**
+ * Comprueba los productos básicos frente a los contenedores y añade automáticamente a la lista de la compra los que estén bajo mínimos.
+ */
+export async function syncBasicsWithShoppingList(
+  uid: string,
+  basics: BasicItem[],
+  products: Product[],
+  shoppingList: ShoppingListItem[],
+  isDemoMode: boolean
+): Promise<{ addedCount: number; addedNames: string[] }> {
+  let addedCount = 0;
+  const addedNames: string[] = [];
+
+  for (const basic of basics) {
+    const status = calculateBasicItemStatus(basic, products, shoppingList);
+
+    // Si está por debajo de los mínimos requeridos y no está ya en la lista de la compra pendiente
+    if (status.isUnderMin && !status.inShoppingList) {
+      const quantityToAdd = status.missingQuantity > 0 ? status.missingQuantity : basic.minQuantity;
+      await addShoppingListItem(
+        uid,
+        {
+          name: basic.name,
+          quantity: quantityToAdd,
+          unit: basic.unit,
+          notes: basic.preferredLocation
+            ? `Básico reposición (${basic.preferredLocation})`
+            : 'Básico reposición',
+        },
+        shoppingList,
+        isDemoMode
+      );
+      addedCount++;
+      addedNames.push(basic.name);
+    }
+  }
+
+  return { addedCount, addedNames };
 }
 
 export { ProductNotFoundError };

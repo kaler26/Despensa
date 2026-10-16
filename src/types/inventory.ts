@@ -119,6 +119,38 @@ export interface ShoppingListItemInput {
   productId?: string | null;
 }
 
+export interface BasicItem {
+  id: string;
+  uid: string;
+  name: string;
+  minQuantity: number;
+  unit: Unit;
+  category: string;
+  preferredLocation?: string;
+  notes?: string;
+  createdAt: string; // ISO string
+  updatedAt: string; // ISO string
+}
+
+export interface BasicItemInput {
+  name: string;
+  minQuantity: number;
+  unit: Unit;
+  category: string;
+  preferredLocation?: string;
+  notes?: string;
+}
+
+export interface BasicItemStatus {
+  basicItem: BasicItem;
+  currentQuantity: number;
+  isUnderMin: boolean;
+  isOutOfStock: boolean;
+  missingQuantity: number;
+  inShoppingList: boolean;
+  matchingProducts: Product[];
+}
+
 export interface Movement {
   id: string;
   uid: string;

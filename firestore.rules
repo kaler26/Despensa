@@ -186,6 +186,43 @@ service cloud.firestore {
         data.createdAt is timestamp;
     }
 
+    function isValidBasicItem(data, householdId) {
+      let requiredFields = [
+        'uid',
+        'name',
+        'minQuantity',
+        'unit',
+        'category',
+        'createdAt',
+        'updatedAt'
+      ];
+      let allowedFields = [
+        'uid',
+        'name',
+        'minQuantity',
+        'unit',
+        'category',
+        'preferredLocation',
+        'notes',
+        'createdAt',
+        'updatedAt'
+      ];
+      return hasRequiredFields(requiredFields) &&
+        hasOnlyAllowedFields(allowedFields) &&
+        data.uid is string &&
+        data.uid == householdId &&
+        validStringLength('name', 1, 100) &&
+        data.minQuantity is number &&
+        data.minQuantity > 0 &&
+        data.minQuantity <= 1000000 &&
+        isValidUnit(data.unit) &&
+        validStringLength('category', 1, 50) &&
+        (!('preferredLocation' in data) || data.preferredLocation == null || validStringLength('preferredLocation', 1, 50)) &&
+        (!('notes' in data) || data.notes == null || validStringLength('notes', 0, 500)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
     function isValidMovement(data, householdId) {
       let requiredFields = [
         'uid',
@@ -251,6 +288,16 @@ service cloud.firestore {
         allow update: if isAuthorizedHouseholdMember(householdId) &&
           areImmutableFieldsUnchanged(['uid', 'createdAt']) &&
           isValidShoppingListItem(request.resource.data, householdId);
+        allow delete: if isAuthorizedHouseholdMember(householdId);
+      }
+
+      match /basics/{basicId} {
+        allow read: if isAuthorizedHouseholdMember(householdId);
+        allow create: if isAuthorizedHouseholdMember(householdId) &&
+          isValidBasicItem(request.resource.data, householdId);
+        allow update: if isAuthorizedHouseholdMember(householdId) &&
+          areImmutableFieldsUnchanged(['uid', 'createdAt']) &&
+          isValidBasicItem(request.resource.data, householdId);
         allow delete: if isAuthorizedHouseholdMember(householdId);
       }
 

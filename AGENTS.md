@@ -29,16 +29,21 @@ Este archivo proporciona todo el contexto técnico y funcional para que **Antigr
    - Por petición expresa del usuario, **no se usan fechas de caducidad**.
    - Los alimentos se organizan por **contenedores** (ej. `Nevera`, `Congelador`, `Despensa 1`, `Despensa 2`, etc.).
    - El usuario puede filtrar por contenedor desde la barra principal y crear, renombrar o eliminar contenedores desde [`src/components/ContainerManagerModal.tsx`](./src/components/ContainerManagerModal.tsx) o directamente al crear un producto en [`src/components/ProductFormModal.tsx`](./src/components/ProductFormModal.tsx).
-3. **Lista de la Compra Manual (sin reposición automática ni stock mínimo)**:
-   - Por petición expresa del usuario, **no hay lista automática de reposición ni cantidad mínima (`minQuantity`)**.
-   - Existe una pestaña dedicada **"Lista de la compra"** ([`src/components/ShoppingListView.tsx`](./src/components/ShoppingListView.tsx)) donde se apuntan manualmente los artículos a comprar (o con un toque desde cualquier tarjeta del inventario mediante el botón «Añadir a la compra»).
-4. **Unidades Permitidas**:
+3. **Pestaña de Básicos y Auto-Reposición Inteligente**:
+   - Pestaña dedicada **"Básicos"** ([`src/components/BasicsView.tsx`](./src/components/BasicsView.tsx)) donde el usuario define productos indispensables con su cantidad mínima requerida (`minQuantity`, `unit`, `category`, `preferredLocation`).
+   - La aplicación inspecciona en tiempo real las existencias totales en todos los contenedores (`Nevera`, `Congelador`, `Despensa 1`, etc.).
+   - Si las existencias de un básico caen por debajo del mínimo (o se agotan), el sistema lo detecta y lo añade automáticamente a la lista de la compra sin crear duplicados.
+   - También permite la sincronización manual bajo demanda ("Sincronizar compra") y la adición directa con un solo toque.
+4. **Lista de la Compra Manual y Sincronizada**:
+   - Pestaña **"Lista de la compra"** ([`src/components/ShoppingListView.tsx`](./src/components/ShoppingListView.tsx)) donde se listan tanto los artículos añadidos manualmente como los básicos añadidos automáticamente por estar bajo mínimos.
+   - Permite marcar como comprados, ajustar cantidades o vaciar los artículos comprados.
+5. **Unidades Permitidas**:
    - `ud`, `kg`, `g`, `l`, `ml`, `paquete`, `lata`.
-5. **Transacciones Atómicas y Stock No Negativo**:
+6. **Transacciones Atómicas y Stock No Negativo**:
    - Todo cambio de existencias (`+`, `-`, compra, consumo o ajuste) se ejecuta mediante `runTransaction` de Firestore en [`src/services/inventoryService.ts`](./src/services/inventoryService.ts) y [`src/domain/inventoryLogic.ts`](./src/domain/inventoryLogic.ts).
    - Nunca se permiten existencias negativas (`NegativeStockError` si `newQuantity < 0`).
    - Cada cambio de stock genera atómicamente un registro en el historial (`compra`, `consumo`, `ajuste`).
-6. **Asistente Inteligente (Gemini Flash)**:
+7. **Asistente Inteligente (Gemini Flash)**:
    - Permite dictar por voz (Web Speech API) o escribir peticiones en lenguaje natural en español (ej. *"nos hemos bebido 1 litro de leche y apunta huevos a la compra"*).
    - Servicio en [`src/services/geminiService.ts`](./src/services/geminiService.ts) y modal en [`src/components/GeminiAssistantModal.tsx`](./src/components/GeminiAssistantModal.tsx).
    - Interpreta multi-acciones con salida estructurada en JSON, muestra una previsualización con checklist al usuario y aplica los cambios atómicamente.
@@ -73,6 +78,15 @@ Ruta raíz compartida: `users/hogar-principal`
   - `notes`: `string`
   - `productId`: `string | null`
   - `createdAt`: `timestamp`
+- `users/hogar-principal/basics/{basicId}`:
+  - `uid`: `'hogar-principal'`
+  - `name`: `string` (ej. `"Leche"`, `"Huevos"`, `"Aceite de oliva"`)
+  - `minQuantity`: `number` (`> 0`)
+  - `unit`: `Unit`
+  - `category`: `string` (opcional)
+  - `preferredLocation`: `string` (opcional, ej. `"Nevera"`)
+  - `notes`: `string` (opcional)
+  - `createdAt`, `updatedAt`: `timestamp`
 - `users/hogar-principal/movements/{movementId}`:
   - `uid`: `'hogar-principal'`
   - `productId`: `string`
