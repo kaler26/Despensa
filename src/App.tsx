@@ -651,17 +651,6 @@ export const App: React.FC = () => {
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <button
               type="button"
-              onClick={() => setIsGeminiModalOpen(true)}
-              className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 px-2.5 py-2 text-xs font-semibold text-white shadow-xs transition hover:from-teal-700 hover:to-emerald-700 sm:min-h-[44px] sm:px-3.5 sm:text-sm"
-              title="Abrir Asistente IA (voz o texto)"
-            >
-              <Sparkles className="h-4 w-4 shrink-0 text-amber-300" aria-hidden="true" />
-              <span>IA</span>
-              <span className="hidden sm:inline">Asistente</span>
-            </button>
-
-            <button
-              type="button"
               onClick={() => {
                 setEditingProduct(null);
                 setIsFormOpen(true);

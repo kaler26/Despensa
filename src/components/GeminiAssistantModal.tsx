@@ -191,13 +191,6 @@ export const GeminiAssistantModal: React.FC<GeminiAssistantModalProps> = ({
     }
   };
 
-  const exampleChips = [
-    'Nos hemos bebido 1 litro de leche',
-    'He comprado 3 latas de atún para Despensa 1',
-    'Gastamos los huevos y el aceite, apúntalos a la compra',
-    'Apunta café y plátanos a la lista de la compra',
-  ];
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
@@ -399,28 +392,6 @@ export const GeminiAssistantModal: React.FC<GeminiAssistantModalProps> = ({
                       <X className="h-4 w-4" />
                     </button>
                   )}
-                </div>
-              </div>
-
-              {/* Sugerencias de ejemplo */}
-              <div className="space-y-1.5">
-                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                  Ejemplos rápidos para probar:
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {exampleChips.map((chip, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => {
-                        setPrompt(chip);
-                        handleInterpret(chip);
-                      }}
-                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-left text-xs text-slate-600 hover:border-emerald-500 hover:bg-emerald-50 hover:text-emerald-800 transition"
-                    >
-                      💡 {chip}
-                    </button>
-                  ))}
                 </div>
               </div>
             </div>
