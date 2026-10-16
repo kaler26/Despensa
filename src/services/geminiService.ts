@@ -57,6 +57,51 @@ export interface InterpretContext {
   containers: StorageContainer[];
 }
 
+let cachedModelName: string | null = null;
+
+export const findBestModel = async (apiKey: string): Promise<string> => {
+  if (cachedModelName) return cachedModelName;
+
+  try {
+    const listRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+    );
+    if (listRes.ok) {
+      const listData = await listRes.json();
+      const models = (listData.models || []) as Array<{
+        name: string;
+        supportedGenerationMethods?: string[];
+      }>;
+
+      const contentModels = models.filter((m) =>
+        m.supportedGenerationMethods?.includes('generateContent')
+      );
+
+      // Prioridad: gemini-2.0-flash > gemini-2.5-flash > otros flash > cualquier modelo que soporte generateContent
+      const preferred =
+        contentModels.find(
+          (m) => m.name.includes('gemini-2.0-flash') && !m.name.includes('lite')
+        ) ||
+        contentModels.find((m) => m.name.includes('gemini-2.5-flash')) ||
+        contentModels.find((m) => m.name.includes('gemini-2.0-flash-lite')) ||
+        contentModels.find((m) => m.name.includes('flash')) ||
+        contentModels[0];
+
+      if (preferred) {
+        const cleanName = preferred.name.startsWith('models/')
+          ? preferred.name.replace('models/', '')
+          : preferred.name;
+        cachedModelName = cleanName;
+        return cleanName;
+      }
+    }
+  } catch {
+    // Si falla la llamada a listar modelos, se usa el orden por defecto
+  }
+
+  return 'gemini-2.0-flash';
+};
+
 export const interpretVoiceOrTextCommand = async (
   prompt: string,
   context: InterpretContext
@@ -147,11 +192,19 @@ REGLAS DE INTERPRETACIÓN:
     },
   };
 
-  // Intentamos con gemini-2.5-flash y si falla probamos gemini-1.5-flash
-  const models = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+  const discoveredModel = await findBestModel(apiKey);
+  const candidateModels = Array.from(
+    new Set([
+      discoveredModel,
+      'gemini-2.0-flash',
+      'gemini-2.5-flash',
+      'gemini-2.0-flash-lite',
+    ])
+  );
+
   let lastError: Error | null = null;
 
-  for (const model of models) {
+  for (const model of candidateModels) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const response = await fetch(url, {
@@ -169,6 +222,9 @@ REGLAS DE INTERPRETACIÓN:
           `Error ${response.status} al consultar la API de Gemini (${model})`;
         throw new Error(errorMsg);
       }
+
+      // Si funcionó, guardamos el modelo exitoso en cache
+      cachedModelName = model;
 
       const data = await response.json();
       const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
