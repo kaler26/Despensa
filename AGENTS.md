@@ -38,6 +38,11 @@ Este archivo proporciona todo el contexto técnico y funcional para que **Antigr
    - Todo cambio de existencias (`+`, `-`, compra, consumo o ajuste) se ejecuta mediante `runTransaction` de Firestore en [`src/services/inventoryService.ts`](./src/services/inventoryService.ts) y [`src/domain/inventoryLogic.ts`](./src/domain/inventoryLogic.ts).
    - Nunca se permiten existencias negativas (`NegativeStockError` si `newQuantity < 0`).
    - Cada cambio de stock genera atómicamente un registro en el historial (`compra`, `consumo`, `ajuste`).
+6. **Asistente Inteligente (Gemini Flash)**:
+   - Permite dictar por voz (Web Speech API) o escribir peticiones en lenguaje natural en español (ej. *"nos hemos bebido 1 litro de leche y apunta huevos a la compra"*).
+   - Servicio en [`src/services/geminiService.ts`](./src/services/geminiService.ts) y modal en [`src/components/GeminiAssistantModal.tsx`](./src/components/GeminiAssistantModal.tsx).
+   - Interpreta multi-acciones con salida estructurada en JSON, muestra una previsualización con checklist al usuario y aplica los cambios atómicamente.
+   - Soporta clave de API desde `.env` (`VITE_GEMINI_API_KEY`) o configurada directamente por el usuario en `localStorage`.
 
 ---
 

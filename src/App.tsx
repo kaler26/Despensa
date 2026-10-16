@@ -13,6 +13,7 @@ import {
   Search,
   Settings2,
   ShoppingCart,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
@@ -58,6 +59,8 @@ import {
   ContainerManagerModal,
   renderContainerIcon,
 } from './components/ContainerManagerModal';
+import { GeminiAssistantModal } from './components/GeminiAssistantModal';
+import { GeminiAction } from './types/gemini';
 
 type ActiveTab = 'inventario' | 'compra' | 'historial';
 
@@ -98,6 +101,8 @@ export const App: React.FC = () => {
   const [deleteTargetProduct, setDeleteTargetProduct] =
     useState<Product | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  const [isGeminiModalOpen, setIsGeminiModalOpen] = useState<boolean>(false);
 
   // Suscripción en tiempo real a productos, contenedores, lista de la compra e historial
   useEffect(() => {
@@ -477,6 +482,115 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleApplyGeminiActions = async (actions: GeminiAction[]) => {
+    if (!user) return;
+    setErrorBanner(null);
+
+    let appliedCount = 0;
+    const errors: string[] = [];
+
+    for (const action of actions) {
+      try {
+        if (action.type === 'consume' || action.type === 'add_stock') {
+          let targetProduct = action.productId
+            ? products.find((p) => p.id === action.productId)
+            : null;
+
+          if (!targetProduct) {
+            const normalizedSearch = action.productName.toLowerCase().trim();
+            targetProduct =
+              products.find(
+                (p) => p.name.toLowerCase().trim() === normalizedSearch
+              ) ||
+              products.find((p) =>
+                p.name.toLowerCase().includes(normalizedSearch)
+              ) ||
+              null;
+          }
+
+          if (targetProduct) {
+            const delta =
+              action.type === 'consume'
+                ? -Math.abs(action.quantity)
+                : Math.abs(action.quantity);
+            const movementType: MovementType =
+              action.type === 'consume' ? 'consumo' : 'compra';
+            await changeProductStock(
+              user.uid,
+              targetProduct.id,
+              delta,
+              user.isDemo,
+              movementType,
+              action.note || 'Asistente IA'
+            );
+            appliedCount++;
+          } else if (action.type === 'add_stock') {
+            await createProduct(
+              user.uid,
+              {
+                name: action.productName,
+                category: action.category || 'Otros',
+                location:
+                  action.location || containers[0]?.name || 'Despensa 1',
+                quantity: Math.abs(action.quantity),
+                unit: action.unit,
+                notes: action.note || 'Añadido con Asistente IA',
+              },
+              user.isDemo
+            );
+            appliedCount++;
+          } else {
+            errors.push(
+              `No se encontró "${action.productName}" para descontar existencias.`
+            );
+          }
+        } else if (action.type === 'create_product') {
+          await createProduct(
+            user.uid,
+            {
+              name: action.productName,
+              category: action.category || 'Otros',
+              location: action.location || containers[0]?.name || 'Despensa 1',
+              quantity: Math.max(0, action.quantity),
+              unit: action.unit,
+              notes: action.note || 'Añadido con Asistente IA',
+            },
+            user.isDemo
+          );
+          appliedCount++;
+        } else if (action.type === 'add_to_shopping_list') {
+          await addShoppingListItem(
+            user.uid,
+            {
+              name: action.productName,
+              quantity: Math.max(0.1, action.quantity),
+              unit: action.unit,
+              notes: action.location || action.note || 'Asistente IA',
+            },
+            shoppingList,
+            user.isDemo
+          );
+          appliedCount++;
+        }
+      } catch (err: unknown) {
+        errors.push(
+          `${action.productName}: ${
+            err instanceof Error ? err.message : 'Error al procesar'
+          }`
+        );
+      }
+    }
+
+    if (appliedCount > 0) {
+      setFeedbackToast(
+        `Se han aplicado ${appliedCount} acción(es) con éxito.`
+      );
+    }
+    if (errors.length > 0) {
+      setErrorBanner(`Avisos del Asistente: ${errors.join('; ')}`);
+    }
+  };
+
   if (authLoading) {
     return (
       <div
@@ -538,11 +652,22 @@ export const App: React.FC = () => {
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <button
               type="button"
+              onClick={() => setIsGeminiModalOpen(true)}
+              className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 px-2.5 py-2 text-xs font-semibold text-white shadow-xs transition hover:from-teal-700 hover:to-emerald-700 sm:min-h-[44px] sm:px-3.5 sm:text-sm"
+              title="Abrir Asistente IA (voz o texto)"
+            >
+              <Sparkles className="h-4 w-4 shrink-0 text-amber-300" aria-hidden="true" />
+              <span>IA</span>
+              <span className="hidden sm:inline">Asistente</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => {
                 setEditingProduct(null);
                 setIsFormOpen(true);
               }}
-              className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-emerald-700 sm:min-h-[44px] sm:px-3.5 sm:text-sm"
+              className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-emerald-600 px-2.5 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-emerald-700 sm:min-h-[44px] sm:px-3.5 sm:text-sm"
             >
               <Plus className="h-4 w-4 shrink-0 stroke-[2.5]" aria-hidden="true" />
               <span>Añadir</span>
@@ -991,7 +1116,26 @@ export const App: React.FC = () => {
         </button>
       </nav>
 
+      {/* Botón flotante Asistente IA (especialmente cómodo en móvil) */}
+      <button
+        type="button"
+        onClick={() => setIsGeminiModalOpen(true)}
+        aria-label="Abrir Asistente IA Gemini"
+        title="Hablar o escribir al Asistente IA"
+        className="fixed bottom-20 right-4 z-40 flex h-13 w-13 items-center justify-center rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-lg shadow-emerald-900/25 hover:scale-105 active:scale-95 transition sm:bottom-6 sm:right-6 sm:h-14 sm:w-14"
+      >
+        <Sparkles className="h-6 w-6 text-amber-300" />
+      </button>
+
       {/* Modales */}
+      <GeminiAssistantModal
+        isOpen={isGeminiModalOpen}
+        onClose={() => setIsGeminiModalOpen(false)}
+        products={products}
+        containers={containers}
+        onApplyActions={handleApplyGeminiActions}
+      />
+
       <ProductFormModal
         isOpen={isFormOpen}
         initialProduct={editingProduct}
