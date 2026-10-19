@@ -231,24 +231,24 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
               return (
                 <li
                   key={item.id}
-                  className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-2xs transition hover:border-emerald-300"
+                  className="flex flex-col gap-2.5 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-2xs transition hover:border-emerald-300 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
                 >
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
                     <button
                       type="button"
                       onClick={() => onToggleItem(item.id, true)}
                       aria-label={`Marcar ${item.name} como comprado`}
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 border-slate-300 bg-white text-transparent transition hover:border-emerald-600"
+                      className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 border-slate-300 bg-white text-transparent transition hover:border-emerald-600"
                     >
                       <Check className="h-4 w-4" aria-hidden="true" />
                     </button>
 
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-bold text-slate-900 sm:text-base">
+                      <p className="break-words text-sm font-bold leading-snug text-slate-900 sm:text-base">
                         {item.name}
                       </p>
                       {item.notes && (
-                        <p className="truncate text-xs text-slate-500">
+                        <p className="mt-0.5 break-words text-xs leading-snug text-slate-500">
                           {item.notes}
                         </p>
                       )}
@@ -256,7 +256,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
                   </div>
 
                   {/* Controles rápidos de cantidad y eliminar */}
-                  <div className="flex shrink-0 items-center gap-1.5">
+                  <div className="flex shrink-0 items-center justify-end gap-1.5 border-t border-slate-100 pt-2 sm:border-t-0 sm:pt-0">
                     <button
                       type="button"
                       disabled={item.quantity <= step}
@@ -326,24 +326,24 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
             {checkedItems.map((item) => (
               <li
                 key={item.id}
-                className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-slate-100/70 p-3 text-slate-500"
+                className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200/80 bg-slate-100/70 p-3 text-slate-500"
               >
-                <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
                   <button
                     type="button"
                     onClick={() => onToggleItem(item.id, false)}
                     aria-label={`Desmarcar ${item.name}`}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 border-emerald-600 bg-emerald-600 text-white"
+                    className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 border-emerald-600 bg-emerald-600 text-white"
                   >
                     <Check className="h-4 w-4 stroke-[2.5]" aria-hidden="true" />
                   </button>
 
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium line-through">
+                    <p className="break-words text-sm font-medium leading-snug line-through">
                       {item.name}
                     </p>
                     {item.notes && (
-                      <p className="truncate text-xs text-slate-400 line-through">
+                      <p className="mt-0.5 break-words text-xs leading-snug text-slate-400 line-through">
                         {item.notes}
                       </p>
                     )}
